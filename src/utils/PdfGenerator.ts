@@ -109,39 +109,54 @@ export class PdfGenerator {
     const subtitle = `Generado el ${data.config.fecha}`;
     this.addHeader("Informe Técnico de Partición", subtitle);
 
-    // Session Code Box - Prominente y destacado
+    // Session Status & recovery - Rediseñado
     let y = 50;
     if (data.config.sessionCode && data.config.sessionCode !== "PENDIENTE") {
-      this.doc.setFillColor(249, 250, 251); // bg-slate-50
-      this.doc.setDrawColor(226, 232, 240); // border-slate-200
-      this.doc.roundedRect(15, y, 180, 45, 3, 3, 'FD');
+      // Info box container
+      this.doc.setFillColor(248, 250, 252); // Very light slate
+      this.doc.setDrawColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
+      this.doc.setLineWidth(0.5);
+      this.doc.roundedRect(15, y, 180, 48, 4, 4, 'F');
       
-      this.doc.setFontSize(10);
+      // Bottom accent line
+      this.doc.setFillColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
+      this.doc.rect(15, y + 44, 180, 4, 'F');
+
+      // Recovery Code Label
+      this.doc.setFontSize(9);
       this.doc.setTextColor(100, 116, 139); // slate-500
       this.doc.setFont('helvetica', 'bold');
-      this.doc.text("CÓDIGO DE RECUPERACIÓN", 105, y + 8, { align: 'center' });
+      this.doc.text("CÓDIGO DE RECUPERACIÓN", 105, y + 10, { align: 'center' });
       
-      this.doc.setFontSize(18);
-      this.doc.setTextColor(79, 70, 229); // indigo-600
+      // The Code
+      this.doc.setFontSize(22);
+      this.doc.setTextColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
       this.doc.setFont('courier', 'bold');
-      this.doc.text(data.config.sessionCode, 105, y + 18, { align: 'center' });
+      this.doc.text(data.config.sessionCode, 105, y + 20, { align: 'center' });
       
-      // Password indicator
-      const statusIcon = data.config.hasPassword ? '🔒' : '⚠️';
-      const statusText = data.config.hasPassword ? 'Protegido con contraseña' : 'Sin protección';
-      const statusColor = data.config.hasPassword ? [34, 197, 94] : [245, 158, 11]; // green or amber
+      // Security Status (NO EMOJIS TO AVOID ENCODING ISSUES)
+      const statusText = data.config.hasPassword ? 'ACCESO PROTEGIDO' : 'ACCESO SIN CONTRASEÑA';
+      const statusColor = data.config.hasPassword ? [22, 163, 74] : [217, 119, 6]; // dark green or dark amber
       
-      this.doc.setFontSize(9);
+      this.doc.setFontSize(8);
       this.doc.setTextColor(statusColor[0], statusColor[1], statusColor[2]);
       this.doc.setFont('helvetica', 'bold');
-      this.doc.text(`${statusIcon} ${statusText}`, 105, y + 28, { align: 'center' });
+      this.doc.text(statusText, 105, y + 27, { align: 'center' });
       
-      // Clickable link
+      // Capsule Button for Online Load
       if (data.config.sessionUrl) {
+        const btnWidth = 50;
+        const btnHeight = 8;
+        const btnX = 105 - (btnWidth / 2);
+        const btnY = y + 32;
+
+        this.doc.setFillColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
+        this.doc.roundedRect(btnX, btnY, btnWidth, btnHeight, 4, 4, 'F');
+        
         this.doc.setFontSize(8);
-        this.doc.setTextColor(59, 130, 246); // blue-500
-        this.doc.setFont('helvetica', 'normal');
-        this.doc.textWithLink('🔗 Haga clic aquí para cargar esta sesión directamente', 105, y + 38, { 
+        this.doc.setTextColor(255, 255, 255);
+        this.doc.setFont('helvetica', 'bold');
+        this.doc.textWithLink('CARGAR SESIÓN ONLINE', 105, btnY + 5.5, { 
           align: 'center',
           url: data.config.sessionUrl
         });
@@ -149,25 +164,55 @@ export class PdfGenerator {
         this.doc.setFontSize(8);
         this.doc.setTextColor(148, 163, 184); // slate-400
         this.doc.setFont('helvetica', 'normal');
-        this.doc.text("Guarde este código para recuperar su sesión", 105, y + 38, { align: 'center' });
+        this.doc.text("Guarde este código para recuperar su sesión más tarde", 105, y + 38, { align: 'center' });
       }
       
-      y += 55;
+      y += 60;
     }
 
-    // Resumen Ejecutivo
+    // Resumen Ejecutivo - Card Style
     this.doc.setFontSize(12);
-    this.doc.setTextColor(0, 0, 0);
+    this.doc.setTextColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
     this.doc.setFont('helvetica', 'bold');
     this.doc.text("Resumen Ejecutivo:", 15, y);
     
-    // Cards simuladas con texto
-    y += 10;
-    this.doc.setFontSize(10);
-    this.doc.setFont('helvetica', 'normal');
-    this.doc.text(`Caudal Relicto Total: ${this.formatCurrency(data.metricas.caudalRelicto)}`, 20, y);
-    this.doc.text(`Número de Herederos: ${data.config.numHerederos}`, 20, y + 7);
-    this.doc.text(`Cuota Ideal por Heredero: ${this.formatCurrency(data.metricas.cuotaIdeal)}`, 20, y + 14);
+    y += 8;
+    // Main metric card
+    this.doc.setFillColor(241, 245, 249); // slate-100
+    this.doc.roundedRect(15, y, 180, 20, 2, 2, 'F');
+    
+    this.doc.setFontSize(9);
+    this.doc.setTextColor(100, 116, 139); // slate-500
+    this.doc.text("CAUDAL RELICTO TOTAL", 20, y + 7);
+    this.doc.setFontSize(14);
+    this.doc.setTextColor(30, 41, 59); // slate-800
+    this.doc.text(this.formatCurrency(data.metricas.caudalRelicto), 20, y + 15);
+
+    // Sub metrics
+    const colWidth = 88;
+    const subY = y + 25;
+    
+    // Left card
+    this.doc.setFillColor(248, 250, 252); // slate-50
+    this.doc.roundedRect(15, subY, colWidth, 18, 2, 2, 'F');
+    this.doc.setFontSize(8);
+    this.doc.setTextColor(100, 116, 139);
+    this.doc.text("NÚMERO DE HEREDEROS", 20, subY + 7);
+    this.doc.setFontSize(11);
+    this.doc.setTextColor(30, 41, 59);
+    this.doc.text(`${data.config.numHerederos}`, 20, subY + 14);
+
+    // Right card
+    this.doc.setFillColor(248, 250, 252);
+    this.doc.roundedRect(15 + colWidth + 4, subY, colWidth, 18, 2, 2, 'F');
+    this.doc.setFontSize(8);
+    this.doc.setTextColor(100, 116, 139);
+    this.doc.text("CUOTA IDEAL POR HEREDERO", 20 + colWidth + 4, subY + 7);
+    this.doc.setFontSize(11);
+    this.doc.setTextColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
+    this.doc.text(this.formatCurrency(data.metricas.cuotaIdeal), 20 + colWidth + 4, subY + 14);
+
+    y = subY + 25;
 
     // INVENTARIO
     y += 25;
@@ -277,6 +322,7 @@ export class PdfGenerator {
 
     // CONCLUSIÓN
     if (currentY > 230) {
+        this.addFooter(); // Footer before page break
         this.doc.addPage();
         currentY = 20;
     }
@@ -285,10 +331,32 @@ export class PdfGenerator {
     
     this.doc.setFontSize(10);
     this.doc.setFont('helvetica', 'normal');
+    this.doc.setTextColor(30, 41, 59); // slate-800
     const splitText = this.doc.splitTextToSize(data.textoExplicativo, 180);
     this.doc.text(splitText, 15, currentY);
 
+    // Final Footer
+    this.addFooter();
+
     // Save
     this.doc.save(`Informe_Particion_${data.config.fecha.replace(/\//g, '-')}.pdf`);
+  }
+
+  private addFooter() {
+    const pageCount = (this.doc as any).internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+        this.doc.setPage(i);
+        this.doc.setFontSize(8);
+        this.doc.setTextColor(148, 163, 184); // slate-400
+        this.doc.setFont('helvetica', 'normal');
+        
+        // Horizontal line
+        this.doc.setDrawColor(241, 245, 249); // slate-100
+        this.doc.setLineWidth(0.2);
+        this.doc.line(15, 285, 195, 285);
+        
+        this.doc.text(`Herencia Justa AI - Informe Técnico`, 15, 290);
+        this.doc.text(`Página ${i} de ${pageCount}`, 195, 290, { align: 'right' });
+    }
   }
 }
