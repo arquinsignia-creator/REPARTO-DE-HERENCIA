@@ -19,6 +19,69 @@ import {
 } from 'lucide-react';
 import { PdfGenerator } from '../utils/PdfGenerator';
 
+// --- Componente de Input Numérico Formateado (Miles y Decimales) ---
+const FormattedNumberInput = ({ value, onChange, className, placeholder }: { value: number, onChange: (val: number) => void, className?: string, placeholder?: string }) => {
+  const [localValue, setLocalValue] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+
+  // Al montar o recibir nuevo valor externo, formatear para mostrar (si no se está editando)
+  React.useEffect(() => {
+    if (!isEditing) {
+      setLocalValue(new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value));
+    }
+  }, [value, isEditing]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Permitir solo números, comas y puntos
+    const raw = e.target.value;
+    // Filtrar caracteres inválidos (solo permitir digitos, coma y punto)
+    if (/^[0-9.,]*$/.test(raw)) {
+      setLocalValue(raw);
+    }
+  };
+
+  const handleBlur = () => {
+    setIsEditing(false);
+    // Parsear el valor local (español: puntos miles, coma decimal)
+    // 1. Quitar puntos de miles
+    let normalized = localValue.replace(/\./g, '');
+    // 2. Reemplazar coma decimal por punto standard
+    normalized = normalized.replace(',', '.');
+    
+    const parsed = parseFloat(normalized);
+    if (!isNaN(parsed)) {
+      onChange(parsed);
+    } else {
+       // Si es inválido, revertir al valor original
+       setLocalValue(new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value));
+    }
+  };
+
+  const handleFocus = () => {
+    setIsEditing(true);
+    // Al editar, quitar puntos de miles para facilitar la edición, pero mantener la coma
+    // O mejor, dejarlo como está y dejar que el usuario edite el string
+    // Estrategia simple: mostrar el valor raw sin formato miles pero con coma decimal
+    if (value === 0) {
+        setLocalValue(""); 
+    } else {
+        setLocalValue(value.toString().replace('.', ',')); 
+    }
+  };
+
+  return (
+    <input 
+      type="text"
+      value={localValue}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      onFocus={handleFocus}
+      className={className}
+      placeholder={placeholder}
+    />
+  );
+};
+
 export default function Page() {
   const [numHerederos, setNumHerederos] = useState(6);
   const [moneda, setMoneda] = useState('EUR');
@@ -228,32 +291,37 @@ export default function Page() {
   };
 
   const formatCurrency = (amount: number) => {
+    // Mapeo manual de símbolos si se prefiere o Intl standard
+    const currencyMap: Record<string, string> = { 'EUR': '€', 'USD': '$', 'MXN': '$' };
+    const symbol = currencyMap[moneda] || moneda;
+    
     return new Intl.NumberFormat('es-ES', { 
       style: 'decimal',
-      maximumFractionDigits: 0
-    }).format(amount) + ' ' + moneda;
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(amount) + ' ' + symbol;
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans p-6 md:p-10">
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans p-4 md:p-10">
       
       {/* Header */}
-      <header className="max-w-[1400px] mx-auto mb-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <header className="max-w-[1400px] mx-auto mb-6 md:mb-10 flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-6">
         <div>
-          <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
-            <div className="bg-indigo-100 p-2 rounded-lg">
-              <Calculator className="text-indigo-600 w-6 h-6" />
+          <h1 className="text-2xl md:text-3xl font-bold text-slate-800 flex items-center gap-3">
+            <div className="bg-indigo-100 p-2 rounded-lg shrink-0">
+              <Calculator className="text-indigo-600 w-5 h-5 md:w-6 md:h-6" />
             </div>
             Optimizador de Herencias
           </h1>
-          <p className="text-slate-500 mt-1 ml-12 text-sm">Cálculo técnico y equitativo de lotes patrimoniales</p>
+          <p className="text-slate-500 mt-1 ml-12 text-sm hidden md:block">Cálculo técnico y equitativo de lotes patrimoniales</p>
         </div>
         
-        <div className="flex items-center gap-4 bg-white p-2 pr-6 rounded-xl shadow-sm border border-slate-200">
-          <div className="flex items-center gap-3 px-4 py-2 border-r border-slate-100">
+        <div className="flex items-center justify-between md:justify-start gap-4 bg-white p-2 pr-4 md:pr-6 rounded-xl shadow-sm border border-slate-200 w-full md:w-auto">
+          <div className="flex items-center gap-3 px-2 md:px-4 py-1 md:py-2 border-r border-slate-100">
             <Users className="w-5 h-5 text-slate-400" />
             <span className="text-lg font-bold text-indigo-600">{numHerederos}</span>
-            <span className="text-sm text-slate-500 font-medium">Herederos</span>
+            <span className="text-sm text-slate-500 font-medium hidden sm:inline">Herederos</span>
             <div className="flex flex-col ml-2">
                <button onClick={() => setNumHerederos(n => n + 1)} className="text-slate-400 hover:text-indigo-600"><ChevronDown className="w-3 h-3 rotate-180" /></button>
                <button onClick={() => setNumHerederos(n => Math.max(1, n - 1))} className="text-slate-400 hover:text-indigo-600"><ChevronDown className="w-3 h-3" /></button>
@@ -288,7 +356,7 @@ export default function Page() {
                       type="text" 
                       value={activo.nombre}
                       onChange={(e) => setActivos(activos.map(a => a.id === activo.id ? {...a, nombre: e.target.value} : a))}
-                      className="text-lg font-bold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 p-0 w-full max-w-md"
+                      className="text-base md:text-lg font-bold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 p-0 w-full max-w-[200px] md:max-w-md truncate"
                     />
                     <button 
                       onClick={() => toggleDivisible(activo.id)}
@@ -311,7 +379,7 @@ export default function Page() {
                 
                 <div className="p-5">
                   <div className="mb-4">
-                    <div className="grid grid-cols-12 text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 px-2 gap-4">
+                    <div className="hidden md:grid grid-cols-12 text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 px-2 gap-4">
                       <div className="col-span-4">Concepto</div>
                       <div className="col-span-2 text-right">Cant.</div>
                       <div className="col-span-2">Unidad</div>
@@ -321,10 +389,11 @@ export default function Page() {
                     
                     <div className="space-y-2">
                       {activo.sub_partidas.map(sub => (
-                        <div key={sub.id} className="grid grid-cols-12 items-center gap-4 hover:bg-slate-50 p-2 rounded-lg transition-colors group">
+                        <div key={sub.id} className="grid grid-cols-1 md:grid-cols-12 items-start md:items-center gap-2 md:gap-4 hover:bg-slate-50 p-3 md:p-2 rounded-lg transition-colors group border border-slate-100 md:border-transparent mb-2 md:mb-0">
                           
-                          {/* Concepto */}
-                          <div className="col-span-4">
+                          {/* Concepto - Full width on mobile */}
+                          <div className="col-span-1 md:col-span-4 w-full">
+                            <span className="md:hidden text-[10px] font-bold text-indigo-400 uppercase mb-1 block">Concepto</span>
                             <input 
                               value={sub.concepto}
                               onChange={(e) => actualizarSubpartida(activo.id, sub.id, 'concepto', e.target.value)}
@@ -333,63 +402,68 @@ export default function Page() {
                             />
                           </div>
 
-                          {/* Cantidad */}
-                          <div className="col-span-2">
-                            <input 
-                              type="number"
-                              value={sub.cantidad || ''}
-                              onChange={(e) => actualizarSubpartida(activo.id, sub.id, 'cantidad', parseFloat(e.target.value) || 0)}
-                              className="w-full text-right bg-transparent border-b border-transparent focus:border-indigo-300 focus:outline-none text-sm font-bold text-slate-600"
-                            />
-                          </div>
+                          <div className="col-span-1 md:col-span-8 grid grid-cols-2 md:grid-cols-8 gap-4 w-full">
+                              {/* Cantidad */}
+                              <div className="col-span-1 md:col-span-2">
+                                <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block">Cantidad</span>
+                                <FormattedNumberInput 
+                                  value={sub.cantidad || 0}
+                                  onChange={(val) => actualizarSubpartida(activo.id, sub.id, 'cantidad', val)}
+                                  className="w-full text-left md:text-right bg-transparent border-b border-transparent focus:border-indigo-300 focus:outline-none text-sm font-bold text-slate-600"
+                                />
+                              </div>
 
-                          {/* Unidad Selector */}
-                          <div className="col-span-2">
-                            <select 
-                              value={sub.unidad}
-                              onChange={(e) => actualizarSubpartida(activo.id, sub.id, 'unidad', e.target.value)}
-                              className="w-full bg-slate-100 rounded border-none text-xs font-medium text-slate-600 focus:ring-1 focus:ring-indigo-500 py-1"
-                            >
-                              <option value="ud">Unidades (ud)</option>
-                              <option value="m2">Superficie (m²)</option>
-                              <option value="ha">Hectáreas (ha)</option>
-                              <option value="global">Partida Alzada (€)</option>
-                            </select>
-                          </div>
-
-                          {/* Valor Unitario */}
-                          <div className="col-span-2 relative flex items-center justify-end">
-                            <input 
-                              type="number"
-                              value={sub.valor_unitario || ''}
-                              onChange={(e) => actualizarSubpartida(activo.id, sub.id, 'valor_unitario', parseFloat(e.target.value) || 0)}
-                              className="w-full text-right bg-transparent border-b border-transparent focus:border-indigo-300 focus:outline-none text-sm font-medium text-indigo-600 pr-8" // Padding for suffix
-                            />
-                            <span className="absolute right-0 text-[10px] text-slate-400 pointer-events-none">
-                              {sub.unidad === 'm2' ? '€/m²' : 
-                               sub.unidad === 'ha' ? '€/ha' : 
-                               sub.unidad === 'global' ? '€' : '€/ud'}
-                            </span>
-                          </div>
-
-                          {/* Total */}
-                          <div className="col-span-2 flex items-center justify-end gap-2">
-                             <div className="text-sm font-bold text-slate-900 truncate">
-                               {formatCurrency(sub.cantidad * sub.valor_unitario)}
-                             </div>
-                             
-                             {/* Delete Action (Hidden usually, visible on group hover) */}
-                             <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button 
-                                  onClick={() => eliminarSubPartida(activo.id, sub.id)}
-                                  className="text-slate-300 hover:text-red-500 transition-colors p-1 hover:bg-red-50 rounded"
-                                  title="Eliminar partida"
+                              {/* Unidad Selector */}
+                              <div className="col-span-1 md:col-span-2">
+                                <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block">Unidad</span>
+                                <select 
+                                  value={sub.unidad}
+                                  onChange={(e) => actualizarSubpartida(activo.id, sub.id, 'unidad', e.target.value)}
+                                  className="w-full bg-slate-100 rounded border-none text-xs font-medium text-slate-600 focus:ring-1 focus:ring-indigo-500 py-1"
                                 >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                                  <option value="ud">Unidades (ud)</option>
+                                  <option value="m2">Superficie (m²)</option>
+                                  <option value="ha">Hectáreas (ha)</option>
+                                  <option value="global">Partida Alzada (€)</option>
+                                </select>
+                              </div>
+
+                              {/* Valor Unitario */}
+                              <div className="col-span-1 md:col-span-2 relative flex flex-col md:flex-row items-start md:items-center justify-end">
+                                <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block w-full">Valor Unit.</span>
+                                <div className="relative w-full">
+                                    <FormattedNumberInput 
+                                      value={sub.valor_unitario || 0}
+                                      onChange={(val) => actualizarSubpartida(activo.id, sub.id, 'valor_unitario', val)}
+                                      className="w-full text-left md:text-right bg-transparent border-b border-transparent focus:border-indigo-300 focus:outline-none text-sm font-medium text-indigo-600 pr-8"
+                                    />
+                                    <span className="absolute right-0 top-0 md:top-auto text-[10px] text-slate-400 pointer-events-none">
+                                    {sub.unidad === 'm2' ? '€/m²' : 
+                                    sub.unidad === 'ha' ? '€/ha' : 
+                                    sub.unidad === 'global' ? '€' : '€/ud'}
+                                    </span>
+                                </div>
+                              </div>
+
+                              {/* Total */}
+                              <div className="col-span-1 md:col-span-2 flex flex-col md:flex-row items-end md:items-center justify-end gap-2">
+                                 <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block w-full text-right">Total</span>
+                                 <div className="text-sm font-bold text-slate-900 shrink-0">
+                                   {formatCurrency(sub.cantidad * sub.valor_unitario)}
+                                 </div>
+                                 
+                                 {/* Delete Action (Visible on mobile always, hover on desktop) */}
+                                 <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity absolute top-2 right-2 md:static">
+                                    <button 
+                                      onClick={() => eliminarSubPartida(activo.id, sub.id)}
+                                      className="text-slate-300 hover:text-red-500 transition-colors p-1 hover:bg-red-50 rounded"
+                                      title="Eliminar partida"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
                               </div>
                           </div>
-                          
                         </div>
                       ))}
                     </div>
@@ -495,9 +569,9 @@ export default function Page() {
                   
                   <div className="space-y-1 mb-4">
                     {lote.activos.map((act: any, idx: number) => (
-                      <div key={idx} className="flex justify-between text-xs py-1 px-2 hover:bg-slate-50 rounded">
-                        <span className="text-slate-600 font-medium">{act.nombre}</span>
-                        <span className="font-bold text-slate-700">{formatCurrency(act.valor)}</span>
+                      <div key={idx} className="flex justify-between items-start text-xs py-1 px-2 hover:bg-slate-50 rounded">
+                        <span className="text-slate-600 font-medium truncate max-w-[60%]">{act.nombre}</span>
+                        <span className="font-bold text-slate-700 shrink-0">{formatCurrency(act.valor)}</span>
                       </div>
                     ))}
                   </div>

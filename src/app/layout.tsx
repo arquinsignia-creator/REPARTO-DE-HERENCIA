@@ -18,7 +18,7 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className={`${inter.variable} ${outfit.variable} font-sans antialiased`}>
-        <div className="min-h-screen flex flex-col">
+        <div className="min-h-screen flex flex-col overflow-x-hidden">
           {children}
         </div>
       </body>

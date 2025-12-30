@@ -64,11 +64,14 @@ export class PdfGenerator {
   }
 
   private formatCurrency(amount: number): string {
+    const currencyMap: Record<string, string> = { 'EUR': '€', 'USD': '$', 'MXN': '$' };
+    const symbol = currencyMap[this.currency] || this.currency;
+
     return new Intl.NumberFormat('es-ES', { 
       style: 'decimal',
       maximumFractionDigits: 2,
       minimumFractionDigits: 2
-    }).format(amount) + ' ' + this.currency;
+    }).format(amount) + ' ' + symbol;
   }
 
   private addHeader(title: string, subtitle?: string) {
