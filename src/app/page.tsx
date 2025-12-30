@@ -83,13 +83,17 @@ const FormattedNumberInput = ({ value, onChange, className, placeholder }: { val
 };
 
 export default function Page() {
-  const [numHerederos, setNumHerederos] = useState(6);
+  const [herederos, setHerederos] = useState(
+    Array.from({ length: 6 }, (_, i) => ({ id: i + 1, nombre: `Heredero ${i + 1}` }))
+  );
+  const numHerederos = herederos.length;
   const [moneda, setMoneda] = useState('EUR');
   const [activos, setActivos] = useState([
     {
       id: '1',
       nombre: "Finca La Dehesa",
       divisible: true,
+      asignadoA: null as number | null,
       sub_partidas: [
         { id: 's1', concepto: "Barbecho", cantidad: 2000, unidad: "m2", valor_unitario: 5 },
         { id: 's2', concepto: "Cultivo Almendro", cantidad: 5000, unidad: "m2", valor_unitario: 12 },
@@ -100,6 +104,7 @@ export default function Page() {
       id: '2',
       nombre: "Gran Explotación Agrícola",
       divisible: true,
+      asignadoA: null as number | null,
       sub_partidas: [
         { id: 's4', concepto: "Almendro Secano", cantidad: 400000, unidad: "m2", valor_unitario: 12 },
         { id: 's5', concepto: "Barbecho", cantidad: 100000, unidad: "m2", valor_unitario: 5 }
@@ -109,6 +114,7 @@ export default function Page() {
       id: '3',
       nombre: "Casa en el Pueblo",
       divisible: false,
+      asignadoA: null as number | null,
       sub_partidas: [
         { id: 's6', concepto: "Superficie", cantidad: 150, unidad: "m2", valor_unitario: 800 }
       ]
@@ -133,59 +139,92 @@ export default function Page() {
 
   const cuotaIdeal = useMemo(() => caudalRelicto / numHerederos, [caudalRelicto, numHerederos]);
 
+  /* 
+   * LÓGICA DE REPARTO
+   * 1. Respetar asignaciones manuales.
+   * 2. Repartir el resto para intentar igualar.
+   */
   const reparto = useMemo(() => {
-    let lotes: any[] = Array.from({ length: numHerederos }, (_, i) => ({
-      id: i + 1,
-      activos: [],
+    // Inicializar lotes con nombres
+    let lotes = herederos.map(h => ({
+      id: h.id,
+      nombreHeredero: h.nombre,
+      activos: [] as any[],
       valorBienes: 0
     }));
 
-    // Clonar activos para manipularlos
-    let activosPendientes = [...totalActivos].sort((a, b) => b.valorTotal - a.valorTotal);
+    // Separar activos asignados y pendientes
+    let activosAsignados = totalActivos.filter(a => a.asignadoA !== null);
+    let activosPendientes = totalActivos.filter(a => a.asignadoA === null).sort((a, b) => b.valorTotal - a.valorTotal);
 
-    // 1. Asignar indivisibles primero a quienes tengan menos
+    // 1. Procesar Asignaciones Manuales
+    activosAsignados.forEach(activo => {
+      const lote = lotes.find(l => l.id === activo.asignadoA);
+      // Solo asignar si el heredero existe (por si se borró)
+      if (lote) {
+        lote.activos.push({ nombre: activo.nombre, valor: activo.valorTotal, fraccion: 1, manual: true });
+        lote.valorBienes += activo.valorTotal;
+      } else {
+        // Fallback: si el heredero asignado no existe, lo tratamos como pendiente
+        activosPendientes.push(activo);
+      }
+    });
+
+    // Re-ordenar pendientes por valor descendente para mejor ajuste
+    activosPendientes.sort((a, b) => b.valorTotal - a.valorTotal);
+
+    // 2. Asignar indivisibles pendientes (a quien tenga menos valor acumulado)
     activosPendientes.filter(a => !a.divisible).forEach(activo => {
       lotes.sort((a, b) => a.valorBienes - b.valorBienes);
-      lotes[0].activos.push({ nombre: activo.nombre, valor: activo.valorTotal, fraccion: 1 });
+      lotes[0].activos.push({ nombre: activo.nombre, valor: activo.valorTotal, fraccion: 1, manual: false });
       lotes[0].valorBienes += activo.valorTotal;
     });
 
-    // 2. Asignar divisibles para equilibrar
+    // 3. Asignar divisibles pendientes para equilibrar
     activosPendientes.filter(a => a.divisible).forEach(activo => {
       let valorRestanteActivo = activo.valorTotal;
       
       while (valorRestanteActivo > 0.01) {
+        // Siempre buscar el más pobre para darle
         lotes.sort((a, b) => a.valorBienes - b.valorBienes);
+        
         let deficit = cuotaIdeal - lotes[0].valorBienes;
         
         if (deficit <= 0) {
-          // Si todos están cubiertos o excedidos, repartir equitativamente lo que queda
-          let porcion = valorRestanteActivo / lotes.length;
-          lotes.forEach(l => {
-            l.activos.push({ nombre: activo.nombre, valor: porcion, fraccion: porcion / activo.valorTotal });
-            l.valorBienes += porcion;
-          });
-          valorRestanteActivo = 0;
+          // Todos excedidos (posible con asignaciones manuales grandes). 
+          // Repartir equitativamente entre todos para minimizar desvío, o dárselo al que menos tiene.
+          // Estrategia: dárselo al que menos tiene aunque se pase.
+          let aAsignar = valorRestanteActivo; // Asignar todo lo que queda
+          // O repartir entre todos? Repartirlo reduce la "injusticia" individual
+          // Vamos a repartir el resto entre todos proporcionalmente (simple)
+           let porcion = valorRestanteActivo / lotes.length;
+           lotes.forEach(l => {
+             l.activos.push({ nombre: activo.nombre, valor: porcion, fraccion: porcion / activo.valorTotal, manual: false });
+             l.valorBienes += porcion;
+           });
+           valorRestanteActivo = 0;
         } else {
+          // Llenar el vacío del más pobre sin pasarse del valor restante del activo
           let aAsignar = Math.min(deficit, valorRestanteActivo);
-          lotes[0].activos.push({ nombre: activo.nombre, valor: aAsignar, fraccion: aAsignar / activo.valorTotal });
+          lotes[0].activos.push({ nombre: activo.nombre, valor: aAsignar, fraccion: aAsignar / activo.valorTotal, manual: false });
           lotes[0].valorBienes += aAsignar;
           valorRestanteActivo -= aAsignar;
         }
       }
     });
 
-    // 3. Calcular compensaciones
+    // 4. Calcular compensaciones
     const compensaciones = lotes.map(l => ({
       heredero: l.id,
+      nombreHeredero: l.nombreHeredero,
       diferencia: cuotaIdeal - l.valorBienes
     }));
 
-    // 4. Ordenar por ID para visualización correcta (1, 2, 3...)
+    // 5. Ordenar por ID para visualización
     lotes.sort((a, b) => a.id - b.id);
 
     return { lotes, compensaciones };
-  }, [totalActivos, numHerederos, cuotaIdeal]);
+  }, [totalActivos, herederos, cuotaIdeal]);
 
   // --- Funciones de Gestión ---
 
@@ -194,9 +233,29 @@ export default function Page() {
       id: Math.random().toString(36).substr(2, 9),
       nombre: "Nuevo Activo",
       divisible: true,
+      asignadoA: null,
       sub_partidas: [{ id: Date.now().toString(), concepto: "General", cantidad: 1, unidad: "ud", valor_unitario: 0 }]
     };
     setActivos([...activos, nuevo]);
+  };
+
+  const agregarHeredero = () => {
+    const nextId = herederos.length > 0 ? Math.max(...herederos.map(h => h.id)) + 1 : 1;
+    setHerederos([...herederos, { id: nextId, nombre: `Heredero ${nextId}` }]);
+  };
+
+  const eliminarHeredero = () => {
+    if (herederos.length <= 1) return;
+    setHerederos(herederos.slice(0, -1));
+  };
+
+  const updateNombreHeredero = (id: number, nombre: string) => {
+    setHerederos(herederos.map(h => h.id === id ? { ...h, nombre } : h));
+  };
+
+  const asignarActivo = (activoId: string, herederoId: string) => {
+    const hId = herederoId === "" ? null : parseInt(herederoId);
+    setActivos(activos.map(a => a.id === activoId ? { ...a, asignadoA: hId } : a));
   };
 
   const eliminarActivo = (id: string) => setActivos(activos.filter(a => a.id !== id));
@@ -252,7 +311,7 @@ export default function Page() {
     if (debenCompensar.length > 0) {
       const totalCompensar = debenCompensar.reduce((acc, c) => acc + Math.abs(c.diferencia), 0);
       lineas.push(`Para perfeccionar la partición, es necesario establecer compensaciones en metálico por un total de ${formatCurrency(totalCompensar)}.`);
-      lineas.push(`Concretamente, los herederos con exceso de adjudicación (${debenCompensar.map(c => `H${c.heredero}`).join(", ")}) deberán abonar la diferencia a aquellos con defecto de adjudicación.`);
+      lineas.push(`Concretamente, los herederos con exceso de adjudicación (${debenCompensar.map(c => c.nombreHeredero).join(", ")}) deberán abonar la diferencia a aquellos con defecto de adjudicación.`);
     } else {
       lineas.push("No se requieren compensaciones en metálico significativas.");
     }
@@ -323,8 +382,8 @@ export default function Page() {
             <span className="text-lg font-bold text-indigo-600">{numHerederos}</span>
             <span className="text-sm text-slate-500 font-medium hidden sm:inline">Herederos</span>
             <div className="flex flex-col ml-2">
-               <button onClick={() => setNumHerederos(n => n + 1)} className="text-slate-400 hover:text-indigo-600"><ChevronDown className="w-3 h-3 rotate-180" /></button>
-               <button onClick={() => setNumHerederos(n => Math.max(1, n - 1))} className="text-slate-400 hover:text-indigo-600"><ChevronDown className="w-3 h-3" /></button>
+               <button onClick={agregarHeredero} className="text-slate-400 hover:text-indigo-600"><ChevronDown className="w-3 h-3 rotate-180" /></button>
+               <button onClick={eliminarHeredero} className="text-slate-400 hover:text-indigo-600"><ChevronDown className="w-3 h-3" /></button>
             </div>
           </div>
           <select 
@@ -371,6 +430,20 @@ export default function Page() {
                     >
                       {activo.divisible ? 'DIVISIBLE' : 'INDIVISIBLE'}
                     </button>
+                    {/* Selector de Asignación */}
+                    <div className="flex items-center gap-2">
+                         <Users className="w-4 h-4 text-slate-400" />
+                         <select 
+                             value={activo.asignadoA || ""}
+                             onChange={(e) => asignarActivo(activo.id, e.target.value)}
+                             className="text-xs font-bold text-slate-600 bg-slate-50 border-none rounded py-1 pl-2 pr-6 focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                         >
+                             <option value="">Reparto Automático</option>
+                             {herederos.map(h => (
+                                 <option key={h.id} value={h.id}>Asignar a {h.nombre}</option>
+                             ))}
+                         </select>
+                     </div>
                   </div>
                   <button onClick={() => eliminarActivo(activo.id)} className="text-slate-300 hover:text-red-500 transition-colors">
                     <Trash2 className="w-5 h-5" />
@@ -560,17 +633,25 @@ export default function Page() {
             <div className="space-y-4">
               {reparto.lotes.map((lote) => (
                 <div key={lote.id} className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-                  <div className="flex justify-between items-center mb-4">
-                    <span className="font-bold text-slate-800">Heredero {lote.id}</span>
-                    <span className="text-xs text-slate-500 font-medium">
+                  <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-2">
+                    <input 
+                      value={lote.nombreHeredero}
+                      onChange={(e) => updateNombreHeredero(lote.id, e.target.value)}
+                      className="font-bold text-slate-800 bg-transparent border-none focus:outline-none hover:bg-slate-50 rounded px-1 -ml-1 w-full max-w-[200px]"
+                    />
+                    <span className="text-xs text-slate-500 font-medium whitespace-nowrap">
                       Bienes: {formatCurrency(lote.valorBienes)}
                     </span>
                   </div>
                   
                   <div className="space-y-1 mb-4">
+                    {lote.activos.length === 0 && <p className="text-xs text-slate-400 italic">Sin bienes asignados</p>}
                     {lote.activos.map((act: any, idx: number) => (
                       <div key={idx} className="flex justify-between items-start text-xs py-1 px-2 hover:bg-slate-50 rounded">
-                        <span className="text-slate-600 font-medium truncate max-w-[60%]">{act.nombre}</span>
+                        <span className="text-slate-600 font-medium truncate max-w-[60%] flex items-center gap-1">
+                          {act.manual && <span className="text-[10px] text-amber-500 font-bold" title="Asignado Manualmente">★</span>}
+                          {act.nombre}
+                        </span>
                         <span className="font-bold text-slate-700 shrink-0">{formatCurrency(act.valor)}</span>
                       </div>
                     ))}

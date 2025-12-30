@@ -25,12 +25,14 @@ interface LoteItem {
 
 interface Lote {
   id: number;
+  nombreHeredero: string;
   activos: LoteItem[];
   valorBienes: number;
 }
 
 interface Compensacion {
   heredero: number;
+  nombreHeredero: string;
   diferencia: number;
 }
 
@@ -157,7 +159,7 @@ export class PdfGenerator {
         this.doc.setFontSize(11);
         this.doc.setTextColor(0, 0, 0);
         this.doc.setFont('helvetica', 'bold');
-        this.doc.text(`Heredero ${lote.id}`, 15, currentY);
+        this.doc.text(`${lote.nombreHeredero}`, 15, currentY);
         
         const diff = lote.valorBienes - data.metricas.cuotaIdeal;
         const diffText = Math.abs(diff) < 1 ? "Equilibrado" : `${diff > 0 ? '+' : ''}${this.formatCurrency(diff)}`;
@@ -202,8 +204,8 @@ export class PdfGenerator {
         
         // Tabla simple de compensaciones
         const compBody = [
-            ...debenPagar.map(c => [`Heredero ${c.heredero}`, 'PAGA (Exceso)', this.formatCurrency(Math.abs(c.diferencia))]),
-            ...debenCobrar.map(c => [`Heredero ${c.heredero}`, 'RECIBE (Defecto)', this.formatCurrency(c.diferencia)])
+            ...debenPagar.map(c => [`${c.nombreHeredero}`, 'PAGA (Exceso)', this.formatCurrency(Math.abs(c.diferencia))]),
+            ...debenCobrar.map(c => [`${c.nombreHeredero}`, 'RECIBE (Defecto)', this.formatCurrency(c.diferencia)])
         ];
 
         autoTable(this.doc, {
