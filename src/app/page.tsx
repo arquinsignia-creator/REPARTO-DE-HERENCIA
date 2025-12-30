@@ -143,6 +143,7 @@ export default function Page() {
   const [passwordError, setPasswordError] = useState<string>('');
   const [pendingPassword, setPendingPassword] = useState<string | null>(null);
   const [pendingSessionCode, setPendingSessionCode] = useState<string | null>(null);
+  const [isSessionProtected, setIsSessionProtected] = useState(false);
 
   // --- Detección de Parámetro URL para Auto-Carga ---
   useEffect(() => {
@@ -351,11 +352,54 @@ export default function Page() {
   };
 
   const solicitarAnalisisIA = async () => {
-    // SIEMPRE mostrar modal de contraseña antes de generar
-    setPasswordModalMode('set');
-    setPasswordError('');
-    setShowPasswordModal(true);
-    // El flujo continúa en handlePasswordConfirm
+    // Si la sesión ya tiene contraseña, no preguntar de nuevo
+    if (isSessionProtected) {
+      ejecutarGeneracionConPassword(null);
+    } else {
+      setPasswordModalMode('set');
+      setPasswordError('');
+      setShowPasswordModal(true);
+    }
+  };
+
+  const ejecutarGeneracionConPassword = async (password: string | null) => {
+    setPendingPassword(password);
+    
+    // Continuar con generación de informe
+    setIsAnalizando(true);
+    setAnalisisIA("");
+    
+    // Guardar sesión con contraseña (o sin ella)
+    const savedCode = await saveSession(password);
+
+    setTimeout(() => {
+      const resumen = generarResumenLocal();
+      setAnalisisIA(resumen);
+      
+      // Generar PDF con enlace directo
+      const currentUrl = window.location.origin;
+      const generator = new PdfGenerator(moneda);
+      generator.generate({
+        config: {
+          numHerederos,
+          moneda,
+          fecha: new Date().toLocaleDateString('es-ES'),
+          sessionCode: savedCode || sessionCode || "PENDIENTE",
+          sessionUrl: savedCode ? `${currentUrl}/?code=${savedCode}` : undefined,
+          hasPassword: password !== null || isSessionProtected
+        },
+        metricas: {
+          caudalRelicto,
+          cuotaIdeal
+        },
+        inventario: activos,
+        reparto: reparto,
+        textoExplicativo: resumen
+      });
+
+      setIsAnalizando(false);
+      setPendingPassword(null);
+    }, 600);
   };
 
   // --- Funciones de Contraseña ---
@@ -373,44 +417,7 @@ export default function Page() {
     if (passwordModalMode === 'set') {
       // Modo: Establecer contraseña al generar informe
       setShowPasswordModal(false);
-      setPendingPassword(password);
-      
-      // Continuar con generación de informe
-      setIsAnalizando(true);
-      setAnalisisIA("");
-      
-      // Guardar sesión con contraseña (o sin ella)
-      const savedCode = await saveSession(password);
-
-      setTimeout(() => {
-        const resumen = generarResumenLocal();
-        setAnalisisIA(resumen);
-        
-        // Generar PDF con enlace directo
-        const currentUrl = window.location.origin;
-        const generator = new PdfGenerator(moneda);
-        generator.generate({
-          config: {
-            numHerederos,
-            moneda,
-            fecha: new Date().toLocaleDateString('es-ES'),
-            sessionCode: savedCode || sessionCode || "PENDIENTE",
-            sessionUrl: savedCode ? `${currentUrl}/?code=${savedCode}` : undefined,
-            hasPassword: password !== null
-          },
-          metricas: {
-            caudalRelicto,
-            cuotaIdeal
-          },
-          inventario: activos,
-          reparto: reparto,
-          textoExplicativo: resumen
-        });
-
-        setIsAnalizando(false);
-        setPendingPassword(null);
-      }, 600);
-      
+      ejecutarGeneracionConPassword(password);
     } else {
       // Modo: Verificar contraseña al cargar sesión
       if (!password || !pendingSessionCode) {
@@ -438,6 +445,7 @@ export default function Page() {
             setSessionCode(data.code);
             setSessionLoadInput("");
             setAnalisisIA("");
+            setIsSessionProtected(true);
             setShowPasswordModal(false);
             setPasswordError('');
             setPendingSessionCode(null);
@@ -493,20 +501,27 @@ export default function Page() {
         version: 1
       };
 
-      // Hashear contraseña si se proporcionó
-      let passwordHash = null;
+      // Preparar payload de Supabase
+      const payload: any = { 
+        code: code, 
+        data: dataToSave,
+        updated_at: new Date().toISOString()
+      };
+
+      // Manejo de contraseña para evitar sobrescrituras
       if (password) {
-        passwordHash = await hashPassword(password);
+        payload.password_hash = await hashPassword(password);
+        setIsSessionProtected(true);
+      } else if (!isSessionProtected) {
+        // Solo si la sesión NO estaba protegida, nos aseguramos de que siga siendo NULL
+        // Si ya estaba protegida (isSessionProtected === true), omitimos el campo 
+        // para que Supabase mantenga el hash existente.
+        payload.password_hash = null;
       }
 
       const { error } = await supabase
         .from('sessions')
-        .upsert({ 
-          code: code, 
-          data: dataToSave,
-          password_hash: passwordHash,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'code' });
+        .upsert(payload, { onConflict: 'code' });
 
       if (error) throw error;
 
@@ -548,6 +563,7 @@ export default function Page() {
           setSessionCode(data.code);
           setSessionLoadInput("");
           setAnalisisIA(""); // Reset analisis anterior
+          setIsSessionProtected(false);
           setIsLoadingSession(false);
         }
       } else {
