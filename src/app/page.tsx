@@ -15,8 +15,12 @@ import {
   Brain,
   Scale,
   Sparkles,
-  Info
+  Info,
+  Search,
+  Save,
+  CheckCircle2
 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 import { PdfGenerator } from '../utils/PdfGenerator';
 
 // --- Componente de Input Numérico Formateado (Miles y Decimales) ---
@@ -123,6 +127,12 @@ export default function Page() {
 
   const [analisisIA, setAnalisisIA] = useState("");
   const [isAnalizando, setIsAnalizando] = useState(false);
+  
+  // --- Estado de Sesión ---
+  const [sessionCode, setSessionCode] = useState<string | null>(null);
+  const [isLoadingSession, setIsLoadingSession] = useState(false);
+  const [sessionLoadInput, setSessionLoadInput] = useState("");
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   // --- Cálculos de Lógica de Negocio ---
   
@@ -324,6 +334,9 @@ export default function Page() {
     setAnalisisIA("");
     
     // Simular un pequeño tiempo de "procesamiento" para feedback visual
+    // Guardar sesión antes de generar
+    await saveSession();
+
     setTimeout(() => {
       const resumen = generarResumenLocal();
       setAnalisisIA(resumen);
@@ -334,7 +347,8 @@ export default function Page() {
         config: {
           numHerederos,
           moneda,
-          fecha: new Date().toLocaleDateString('es-ES')
+          fecha: new Date().toLocaleDateString('es-ES'),
+          sessionCode: sessionCode || "PENDIENTE"
         },
         metricas: {
           caudalRelicto,
@@ -347,6 +361,78 @@ export default function Page() {
 
       setIsAnalizando(false);
     }, 600);
+  };
+
+  // --- Lógica de Persistencia (Supabase) ---
+
+  const generateSessionCode = () => {
+    // Generar código tipo HER-XXXX
+    const random = Math.floor(1000 + Math.random() * 9000); // 4 dígitos
+    return `HER-${random}`;
+  };
+
+  const saveSession = async () => {
+    setSaveStatus('saving');
+    try {
+      let code = sessionCode;
+      if (!code) {
+        code = generateSessionCode();
+        setSessionCode(code);
+      }
+
+      const dataToSave = {
+        herederos,
+        activos,
+        moneda,
+        version: 1
+      };
+
+      const { error } = await supabase
+        .from('sessions')
+        .upsert({ 
+          code: code, 
+          data: dataToSave,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'code' });
+
+      if (error) throw error;
+
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 3000);
+      return code;
+    } catch (err) {
+      console.error("Error saving session:", err);
+      setSaveStatus('error');
+    }
+  };
+
+  const loadSession = async (codeToLoad: string) => {
+    if (!codeToLoad) return;
+    setIsLoadingSession(true);
+    try {
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('code', codeToLoad.toUpperCase())
+        .single();
+
+      if (error) throw error;
+      if (data && data.data) {
+        setHerederos(data.data.herederos);
+        setActivos(data.data.activos);
+        setMoneda(data.data.moneda);
+        setSessionCode(data.code);
+        setSessionLoadInput("");
+        setAnalisisIA(""); // Reset analisis anterior
+      } else {
+        alert("Sesión no encontrada");
+      }
+    } catch (err) {
+      console.error("Error loading session:", err);
+      alert("Error al cargar la sesión. Verifica el código.");
+    } finally {
+      setIsLoadingSession(false);
+    }
   };
 
   const formatCurrency = (amount: number) => {
@@ -395,6 +481,35 @@ export default function Page() {
             <option value="USD">USD ($)</option>
             <option value="MXN">MXN ($)</option>
           </select>
+        </div>
+
+        {/* Carga de Sesión */}
+        <div className="flex items-center gap-2 bg-white p-2 rounded-xl shadow-sm border border-slate-200 w-full md:w-auto">
+          {sessionCode ? (
+             <div className="flex items-center gap-2 px-3">
+               <span className="text-xs text-slate-400 font-bold uppercase">Sesión:</span>
+               <span className="text-lg font-bold text-indigo-600 tracking-wider">{sessionCode}</span>
+               {saveStatus === 'saved' && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+             </div>
+          ) : (
+             <div className="flex items-center gap-2">
+               <input 
+                 value={sessionLoadInput}
+                 onChange={(e) => setSessionLoadInput(e.target.value.toUpperCase())}
+                 placeholder="CÓDIGO (ej: HER-1234)"
+                 className="text-xs font-bold text-slate-700 bg-slate-50 border-none rounded py-1.5 pl-3 pr-2 focus:ring-1 focus:ring-indigo-500 w-[140px]"
+                 maxLength={10}
+               />
+               <button 
+                onClick={() => loadSession(sessionLoadInput)}
+                disabled={!sessionLoadInput || isLoadingSession}
+                className="p-1.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 disabled:opacity-50"
+                title="Cargar Sesión"
+               >
+                 <Search className="w-4 h-4" />
+               </button>
+             </div>
+          )}
         </div>
       </header>
 

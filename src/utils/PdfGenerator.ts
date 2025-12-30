@@ -41,6 +41,7 @@ export interface ReportData {
     numHerederos: number;
     moneda: string;
     fecha: string;
+    sessionCode?: string;
   };
   metricas: {
     caudalRelicto: number;
@@ -103,7 +104,8 @@ export class PdfGenerator {
 
   public generate(data: ReportData) {
     // COVER PAGE
-    this.addHeader("Informe Técnico de Partición", `Generado el ${data.config.fecha}`);
+    const subtitle = `Generado el ${data.config.fecha}${data.config.sessionCode ? ` | Ref: ${data.config.sessionCode}` : ''}`;
+    this.addHeader("Informe Técnico de Partición", subtitle);
 
     // Resumen Ejecutivo
     let y = 60;
