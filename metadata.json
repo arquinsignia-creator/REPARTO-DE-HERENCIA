@@ -1,0 +1,5 @@
+{
+  "name": "HerenciaJusta AI",
+  "description": "An intelligent inheritance partitioner that optimizes asset distribution and calculates financial compensations among heirs using Gemini AI.",
+  "requestFramePermissions": []
+}

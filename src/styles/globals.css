@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+@theme {
+  --font-inter: 'Inter', sans-serif;
+  --font-outfit: 'Outfit', sans-serif;
+
+  --color-primary: #4F46E5; /* Indigo 600 */
+  --color-primary-foreground: #FFFFFF;
+  
+  --color-secondary: #F8FAFC; /* Slate 50 */
+  --color-secondary-foreground: #0F172A; /* Slate 900 */
+  
+  --color-accent: #8B5CF6; /* Violet 500 */
+  --color-accent-foreground: #FFFFFF;
+
+  --color-success: #10B981; /* Emerald 500 */
+  --color-danger: #EF4444; /* Red 500 */
+}
+
+body {
+  font-family: var(--font-inter);
+  background-color: var(--color-secondary);
+  color: var(--color-secondary-foreground);
+}
+
+@utility text-gradient {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600;
+}
+
+/* Inputs Modernos */
+.input-field {
+  width: 100%;
+  padding: 0.875rem 1.25rem;
+  border-radius: 0.75rem;
+  border: 1.5px solid hsl(var(--border));
+  background: rgba(255, 255, 255, 0.8);
+  transition: all 0.2s ease;
+  outline: none;
+  font-size: 0.95rem;
+}
+
+.input-field:focus {
+  border-color: hsl(var(--primary));
+  background: white;
+  box-shadow: 0 0 0 4px hsla(var(--primary), 0.1);
+}
+
+/* Animaciones */
+.animate-fade-in {
+  animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-slide-up {
+  animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Gradientes de texto */
+.text-gradient {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
