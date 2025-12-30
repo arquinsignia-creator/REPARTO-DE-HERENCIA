@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Calculator, 
   Plus, 
@@ -18,10 +18,13 @@ import {
   Info,
   Search,
   Save,
-  CheckCircle2
+  CheckCircle2,
+  Copy
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PdfGenerator } from '../utils/PdfGenerator';
+import { PasswordModal } from '../components/PasswordModal';
+import bcrypt from 'bcryptjs';
 
 // --- Componente de Input Numérico Formateado (Miles y Decimales) ---
 const FormattedNumberInput = ({ value, onChange, className, placeholder }: { value: number, onChange: (val: number) => void, className?: string, placeholder?: string }) => {
@@ -133,6 +136,24 @@ export default function Page() {
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [sessionLoadInput, setSessionLoadInput] = useState("");
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  
+  // --- Estado de Modal de Contraseña ---
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordModalMode, setPasswordModalMode] = useState<'set' | 'verify'>('set');
+  const [passwordError, setPasswordError] = useState<string>('');
+  const [pendingPassword, setPendingPassword] = useState<string | null>(null);
+  const [pendingSessionCode, setPendingSessionCode] = useState<string | null>(null);
+
+  // --- Detección de Parámetro URL para Auto-Carga ---
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (code) {
+      loadSession(code);
+      // Limpiar URL después de cargar
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   // --- Cálculos de Lógica de Negocio ---
   
@@ -330,54 +351,139 @@ export default function Page() {
   };
 
   const solicitarAnalisisIA = async () => {
-    setIsAnalizando(true);
-    setAnalisisIA("");
-    
-    // Simular un pequeño tiempo de "procesamiento" para feedback visual
-    // Guardar sesión antes de generar
-    await saveSession();
+    // SIEMPRE mostrar modal de contraseña antes de generar
+    setPasswordModalMode('set');
+    setPasswordError('');
+    setShowPasswordModal(true);
+    // El flujo continúa en handlePasswordConfirm
+  };
 
-    setTimeout(() => {
-      const resumen = generarResumenLocal();
-      setAnalisisIA(resumen);
+  // --- Funciones de Contraseña ---
+  
+  const hashPassword = async (password: string): Promise<string> => {
+    const salt = await bcrypt.genSalt(10);
+    return bcrypt.hash(password, salt);
+  };
+
+  const verifyPassword = async (password: string, hash: string): Promise<boolean> => {
+    return bcrypt.compare(password, hash);
+  };
+
+  const handlePasswordConfirm = async (password: string | null) => {
+    if (passwordModalMode === 'set') {
+      // Modo: Establecer contraseña al generar informe
+      setShowPasswordModal(false);
+      setPendingPassword(password);
       
-      // Generar PDF
-      const generator = new PdfGenerator(moneda);
-      generator.generate({
-        config: {
-          numHerederos,
-          moneda,
-          fecha: new Date().toLocaleDateString('es-ES'),
-          sessionCode: sessionCode || "PENDIENTE"
-        },
-        metricas: {
-          caudalRelicto,
-          cuotaIdeal
-        },
-        inventario: activos,
-        reparto: reparto,
-        textoExplicativo: resumen
-      });
+      // Continuar con generación de informe
+      setIsAnalizando(true);
+      setAnalisisIA("");
+      
+      // Guardar sesión con contraseña (o sin ella)
+      const savedCode = await saveSession(password);
 
-      setIsAnalizando(false);
-    }, 600);
+      setTimeout(() => {
+        const resumen = generarResumenLocal();
+        setAnalisisIA(resumen);
+        
+        // Generar PDF con enlace directo
+        const currentUrl = window.location.origin;
+        const generator = new PdfGenerator(moneda);
+        generator.generate({
+          config: {
+            numHerederos,
+            moneda,
+            fecha: new Date().toLocaleDateString('es-ES'),
+            sessionCode: savedCode || sessionCode || "PENDIENTE",
+            sessionUrl: savedCode ? `${currentUrl}/?code=${savedCode}` : undefined,
+            hasPassword: password !== null
+          },
+          metricas: {
+            caudalRelicto,
+            cuotaIdeal
+          },
+          inventario: activos,
+          reparto: reparto,
+          textoExplicativo: resumen
+        });
+
+        setIsAnalizando(false);
+        setPendingPassword(null);
+      }, 600);
+      
+    } else {
+      // Modo: Verificar contraseña al cargar sesión
+      if (!password || !pendingSessionCode) {
+        setPasswordError('Por favor ingrese una contraseña');
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('sessions')
+          .select('*')
+          .eq('code', pendingSessionCode)
+          .single();
+
+        if (error) throw error;
+
+        if (data && data.password_hash) {
+          const isValid = await verifyPassword(password, data.password_hash);
+          
+          if (isValid) {
+            // Contraseña correcta, cargar sesión
+            setHerederos(data.data.herederos);
+            setActivos(data.data.activos);
+            setMoneda(data.data.moneda);
+            setSessionCode(data.code);
+            setSessionLoadInput("");
+            setAnalisisIA("");
+            setShowPasswordModal(false);
+            setPasswordError('');
+            setPendingSessionCode(null);
+          } else {
+            setPasswordError('Contraseña incorrecta. Inténtelo de nuevo.');
+          }
+        } else {
+          // No debería llegar aquí, pero por si acaso
+          setPasswordError('Error al verificar contraseña');
+        }
+      } catch (err) {
+        console.error("Error verifying password:", err);
+        setPasswordError('Error al verificar contraseña');
+      }
+    }
+  };
+
+  const handlePasswordCancel = () => {
+    setShowPasswordModal(false);
+    setPasswordError('');
+    setPendingPassword(null);
+    setPendingSessionCode(null);
+    setIsAnalizando(false);
   };
 
   // --- Lógica de Persistencia (Supabase) ---
 
   const generateSessionCode = () => {
-    // Generar código tipo HER-XXXX
-    const random = Math.floor(1000 + Math.random() * 9000); // 4 dígitos
-    return `HER-${random}`;
+    // Generar código alfanumérico de 8 caracteres (mayúsculas y minúsculas)
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let result = '';
+    for (let i = 0; i < 8; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
   };
 
-  const saveSession = async () => {
+  const saveSession = async (password: string | null = null) => {
     setSaveStatus('saving');
     try {
       let code = sessionCode;
+      
+      // Si no existe código, generarlo
       if (!code) {
         code = generateSessionCode();
-        setSessionCode(code);
+        setSessionCode(code); // Actualiza estado UI
       }
 
       const dataToSave = {
@@ -387,11 +493,18 @@ export default function Page() {
         version: 1
       };
 
+      // Hashear contraseña si se proporcionó
+      let passwordHash = null;
+      if (password) {
+        passwordHash = await hashPassword(password);
+      }
+
       const { error } = await supabase
         .from('sessions')
         .upsert({ 
           code: code, 
           data: dataToSave,
+          password_hash: passwordHash,
           updated_at: new Date().toISOString()
         }, { onConflict: 'code' });
 
@@ -399,10 +512,11 @@ export default function Page() {
 
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 3000);
-      return code;
+      return code; // Retorna el código seguro para usarlo inmediatamente
     } catch (err) {
       console.error("Error saving session:", err);
       setSaveStatus('error');
+      return null;
     }
   };
 
@@ -413,24 +527,36 @@ export default function Page() {
       const { data, error } = await supabase
         .from('sessions')
         .select('*')
-        .eq('code', codeToLoad.toUpperCase())
+        .eq('code', codeToLoad) // Buscar exactamente como se ingresó (case-sensitive)
         .single();
 
       if (error) throw error;
       if (data && data.data) {
-        setHerederos(data.data.herederos);
-        setActivos(data.data.activos);
-        setMoneda(data.data.moneda);
-        setSessionCode(data.code);
-        setSessionLoadInput("");
-        setAnalisisIA(""); // Reset analisis anterior
+        // Verificar si tiene contraseña
+        if (data.password_hash) {
+          // Requiere contraseña, mostrar modal
+          setPendingSessionCode(codeToLoad);
+          setPasswordModalMode('verify');
+          setPasswordError('');
+          setShowPasswordModal(true);
+          setIsLoadingSession(false);
+        } else {
+          // Sin contraseña, cargar directamente
+          setHerederos(data.data.herederos);
+          setActivos(data.data.activos);
+          setMoneda(data.data.moneda);
+          setSessionCode(data.code);
+          setSessionLoadInput("");
+          setAnalisisIA(""); // Reset analisis anterior
+          setIsLoadingSession(false);
+        }
       } else {
         alert("Sesión no encontrada");
+        setIsLoadingSession(false);
       }
     } catch (err) {
       console.error("Error loading session:", err);
-      alert("Error al cargar la sesión. Verifica el código.");
-    } finally {
+      alert("Error al cargar la sesión. Verifica el código (distingue mayúsculas/minúsculas).");
       setIsLoadingSession(false);
     }
   };
@@ -489,16 +615,34 @@ export default function Page() {
              <div className="flex items-center gap-2 px-3">
                <span className="text-xs text-slate-400 font-bold uppercase">Sesión:</span>
                <span className="text-lg font-bold text-indigo-600 tracking-wider">{sessionCode}</span>
+               <button
+                 onClick={() => {
+                   navigator.clipboard.writeText(sessionCode);
+                   // Visual feedback
+                   const btn = document.activeElement as HTMLButtonElement;
+                   if (btn) {
+                     const originalHTML = btn.innerHTML;
+                     btn.innerHTML = '<svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
+                     setTimeout(() => {
+                       btn.innerHTML = originalHTML;
+                     }, 1500);
+                   }
+                 }}
+                 className="p-1.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 transition-colors"
+                 title="Copiar código"
+               >
+                 <Copy className="w-4 h-4" />
+               </button>
                {saveStatus === 'saved' && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
              </div>
           ) : (
              <div className="flex items-center gap-2">
                <input 
                  value={sessionLoadInput}
-                 onChange={(e) => setSessionLoadInput(e.target.value.toUpperCase())}
-                 placeholder="CÓDIGO (ej: HER-1234)"
+                 onChange={(e) => setSessionLoadInput(e.target.value)}
+                 placeholder="CÓDIGO (ej: aB3xY9Zk)"
                  className="text-xs font-bold text-slate-700 bg-slate-50 border-none rounded py-1.5 pl-3 pr-2 focus:ring-1 focus:ring-indigo-500 w-[140px]"
-                 maxLength={10}
+                 maxLength={8}
                />
                <button 
                 onClick={() => loadSession(sessionLoadInput)}
@@ -792,6 +936,15 @@ export default function Page() {
 
         </aside>
       </main>
+
+      {/* Password Modal */}
+      <PasswordModal
+        isOpen={showPasswordModal}
+        mode={passwordModalMode}
+        onConfirm={handlePasswordConfirm}
+        onCancel={handlePasswordCancel}
+        error={passwordError}
+      />
     </div>
   );
 }

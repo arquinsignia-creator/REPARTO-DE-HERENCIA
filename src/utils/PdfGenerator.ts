@@ -42,6 +42,8 @@ export interface ReportData {
     moneda: string;
     fecha: string;
     sessionCode?: string;
+    sessionUrl?: string;
+    hasPassword?: boolean;
   };
   metricas: {
     caudalRelicto: number;
@@ -104,18 +106,65 @@ export class PdfGenerator {
 
   public generate(data: ReportData) {
     // COVER PAGE
-    const subtitle = `Generado el ${data.config.fecha}${data.config.sessionCode ? ` | Ref: ${data.config.sessionCode}` : ''}`;
+    const subtitle = `Generado el ${data.config.fecha}`;
     this.addHeader("Informe Técnico de Partición", subtitle);
 
+    // Session Code Box - Prominente y destacado
+    let y = 50;
+    if (data.config.sessionCode && data.config.sessionCode !== "PENDIENTE") {
+      this.doc.setFillColor(249, 250, 251); // bg-slate-50
+      this.doc.setDrawColor(226, 232, 240); // border-slate-200
+      this.doc.roundedRect(15, y, 180, 45, 3, 3, 'FD');
+      
+      this.doc.setFontSize(10);
+      this.doc.setTextColor(100, 116, 139); // slate-500
+      this.doc.setFont('helvetica', 'bold');
+      this.doc.text("CÓDIGO DE RECUPERACIÓN", 105, y + 8, { align: 'center' });
+      
+      this.doc.setFontSize(18);
+      this.doc.setTextColor(79, 70, 229); // indigo-600
+      this.doc.setFont('courier', 'bold');
+      this.doc.text(data.config.sessionCode, 105, y + 18, { align: 'center' });
+      
+      // Password indicator
+      const statusIcon = data.config.hasPassword ? '🔒' : '⚠️';
+      const statusText = data.config.hasPassword ? 'Protegido con contraseña' : 'Sin protección';
+      const statusColor = data.config.hasPassword ? [34, 197, 94] : [245, 158, 11]; // green or amber
+      
+      this.doc.setFontSize(9);
+      this.doc.setTextColor(statusColor[0], statusColor[1], statusColor[2]);
+      this.doc.setFont('helvetica', 'bold');
+      this.doc.text(`${statusIcon} ${statusText}`, 105, y + 28, { align: 'center' });
+      
+      // Clickable link
+      if (data.config.sessionUrl) {
+        this.doc.setFontSize(8);
+        this.doc.setTextColor(59, 130, 246); // blue-500
+        this.doc.setFont('helvetica', 'normal');
+        this.doc.textWithLink('🔗 Haga clic aquí para cargar esta sesión directamente', 105, y + 38, { 
+          align: 'center',
+          url: data.config.sessionUrl
+        });
+      } else {
+        this.doc.setFontSize(8);
+        this.doc.setTextColor(148, 163, 184); // slate-400
+        this.doc.setFont('helvetica', 'normal');
+        this.doc.text("Guarde este código para recuperar su sesión", 105, y + 38, { align: 'center' });
+      }
+      
+      y += 55;
+    }
+
     // Resumen Ejecutivo
-    let y = 60;
     this.doc.setFontSize(12);
     this.doc.setTextColor(0, 0, 0);
+    this.doc.setFont('helvetica', 'bold');
     this.doc.text("Resumen Ejecutivo:", 15, y);
     
     // Cards simuladas con texto
     y += 10;
     this.doc.setFontSize(10);
+    this.doc.setFont('helvetica', 'normal');
     this.doc.text(`Caudal Relicto Total: ${this.formatCurrency(data.metricas.caudalRelicto)}`, 20, y);
     this.doc.text(`Número de Herederos: ${data.config.numHerederos}`, 20, y + 7);
     this.doc.text(`Cuota Ideal por Heredero: ${this.formatCurrency(data.metricas.cuotaIdeal)}`, 20, y + 14);
