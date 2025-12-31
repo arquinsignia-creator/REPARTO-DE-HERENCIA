@@ -21,6 +21,8 @@ interface LoteItem {
   nombre: string;
   valor: number;
   fraccion: number;
+  tipo?: 'gananciales' | 'herencia';
+  virtual?: boolean;
 }
 
 interface Lote {
@@ -55,6 +57,11 @@ export interface ReportData {
     compensaciones: Compensacion[];
   };
   textoExplicativo: string;
+  fiscal?: {
+    gananciales: boolean;
+    usufructo: { enabled: boolean; edadViudo: number; valor: number };
+    colacion: { id: string; concepto: string; valor: number }[];
+  };
 }
 
 export class PdfGenerator {
@@ -214,27 +221,51 @@ export class PdfGenerator {
 
     y = subY + 25;
 
+    // DISTRIBUCIÓN VISUAL
+    this.drawDistributionChart(data, y);
+    y += 55;
+
     // INVENTARIO
     y += 25;
     this.addSectionTitle("1. Inventario del Caudal Relicto", y);
+    y += 10;
     
-    const inventoryBody = data.inventario.map(activo => {
-        // Calcular valor total si no viene
+    let invY = y;
+    data.inventario.forEach((activo) => {
         const total = activo.sub_partidas.reduce((a, b) => a + (b.cantidad * b.valor_unitario), 0);
-        return [
-            activo.nombre,
-            activo.divisible ? 'SÍ' : 'NO',
-            activo.sub_partidas.length + ' partidas',
-            this.formatCurrency(total)
-        ];
-    });
+        
+        // Check for page break before each asset table
+        if (invY > 260) {
+            this.doc.addPage();
+            invY = 20;
+        }
 
-    autoTable(this.doc, {
-        startY: y + 10,
-        head: [['Activo', 'Divisible', 'Detalle', 'Valor Total']],
-        body: inventoryBody,
-        headStyles: { fillColor: this.primaryColor as any },
-        theme: 'grid'
+        const rows = activo.sub_partidas.map(sub => [
+            { content: `   - ${sub.concepto}`, styles: { fontStyle: 'italic', textColor: [100, 116, 139] } },
+            { content: `${sub.cantidad} ${sub.unidad}` },
+            { content: this.formatCurrency(sub.valor_unitario) },
+            { content: this.formatCurrency(sub.cantidad * sub.valor_unitario) }
+        ]);
+
+        autoTable(this.doc, {
+            startY: invY,
+            head: [[{ content: activo.nombre, styles: { fillColor: [241, 245, 249], textColor: [30, 41, 59] } }, 'Divisible', 'Detalle', 'Valor Total']],
+            body: [
+                [
+                    { content: 'Resumen del Activo', styles: { fontStyle: 'bold' } },
+                    { content: activo.divisible ? 'SÍ' : 'NO' },
+                    { content: activo.sub_partidas.length + ' partidas' },
+                    { content: this.formatCurrency(total), styles: { fontStyle: 'bold' } }
+                ],
+                ...rows
+            ] as any,
+            headStyles: { fillColor: this.primaryColor as any },
+            theme: 'grid',
+            styles: { fontSize: 8 },
+            margin: { left: 15, right: 15 }
+        });
+
+        invY = (this.doc as any).lastAutoTable.finalY + 10;
     });
 
     // REPARTO
@@ -248,8 +279,6 @@ export class PdfGenerator {
         if (currentY > 250) {
             this.doc.addPage();
             currentY = 20;
-            this.addSectionTitle("2. Propuesta de Adjudicación (Cont.)", currentY);
-            currentY += 15;
         }
 
         this.doc.setFontSize(11);
@@ -264,10 +293,20 @@ export class PdfGenerator {
         this.doc.setFontSize(10);
         this.doc.text(`Valor Adjudicado: ${this.formatCurrency(lote.valorBienes)} (${diffText})`, 100, currentY);
 
-        const loteBody = lote.activos.map(item => [
-            item.nombre,
-            `${(item.fraccion * 100).toFixed(1)}%`,
-            this.formatCurrency(item.valor)
+        // Group assets by name and sum values/fractions
+        const groupedActivos: Record<string, { valor: number, fraccion: number }> = {};
+        lote.activos.forEach(item => {
+            if (!groupedActivos[item.nombre]) {
+                groupedActivos[item.nombre] = { valor: 0, fraccion: 0 };
+            }
+            groupedActivos[item.nombre].valor += item.valor;
+            groupedActivos[item.nombre].fraccion += item.fraccion;
+        });
+
+        const loteBody = Object.entries(groupedActivos).map(([nombre, data]) => [
+            nombre,
+            `${(data.fraccion * 100).toFixed(2)}%`,
+            this.formatCurrency(data.valor)
         ]);
 
         autoTable(this.doc, {
@@ -335,11 +374,118 @@ export class PdfGenerator {
     const splitText = this.doc.splitTextToSize(data.textoExplicativo, 180);
     this.doc.text(splitText, 15, currentY);
 
+    // NUEVO APARTADO: DESGLOSE POR ACTIVO
+    this.addAssetBreakdownSection(data);
+
+    // ANEXO FISCAL & CONSEJOS (New Page)
+    if (data.fiscal || data.config) {
+        this.addLegalAdvicePage(data);
+    }
+
     // Final Footer
     this.addFooter();
 
     // Save
     this.doc.save(`Informe_Particion_${data.config.fecha.replace(/\//g, '-')}.pdf`);
+  }
+
+  private addLegalAdvicePage(data: ReportData) {
+    this.doc.addPage();
+    this.addHeader("Guía de Consejos y Marco Legal", "Información Técnica Verificada");
+    
+    let y = 50;
+    this.addSectionTitle("1. Consideraciones Legales", y);
+    y += 10;
+    
+    const advice = [
+      { t: "Renuncia a la Herencia", d: "La renuncia debe ser siempre pura, simple y gratuita. Si se renuncia a favor de alguien, se considera donación y tributa doblemente." },
+      { t: "Cuentas Bancarias", d: "Las entidades bancarias bloquean las cuentas al fallecimiento. Es necesario presentar el Impuesto de Sucesiones liquidado para desbloquearlas." },
+      { t: "Registro de la Propiedad", d: "La inscripción no es obligatoria para heredar pero sí para vender o solicitar hipotecas sobre el bien adjudicado." },
+      { t: "Plazos Fiscales", d: "Dispone de 6 meses desde el fallecimiento para liquidar el Impuesto de Sucesiones (con posibilidad de prórroga de otros 6 meses)." }
+    ];
+
+    advice.forEach(item => {
+      this.doc.setFont('helvetica', 'bold');
+      this.doc.setFontSize(10);
+      this.doc.setTextColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
+      this.doc.text(item.t, 15, y);
+      y += 5;
+      this.doc.setFont('helvetica', 'normal');
+      this.doc.setTextColor(71, 85, 105);
+      const lines = this.doc.splitTextToSize(item.d, 180);
+      this.doc.text(lines, 15, y);
+      y += (lines.length * 5) + 5;
+    });
+
+    if (data.fiscal && (data.fiscal.colacion.length > 0 || data.fiscal.usufructo.enabled)) {
+      this.addSectionTitle("2. Desglose de Operaciones Particionales", y);
+      y += 10;
+
+      if (data.fiscal.usufructo.enabled) {
+        const uPorc = Math.max(10, Math.min(70, 89 - data.fiscal.usufructo.edadViudo));
+        this.doc.setFontSize(9);
+        this.doc.setTextColor(30, 41, 59);
+        this.doc.text(`USUFRUCTO VIUDAL (${uPorc}%): Aplicado según la regla del 89.`, 15, y);
+        y += 5;
+        this.doc.setFontSize(8);
+        this.doc.setTextColor(100, 116, 139);
+        this.doc.text(`Valoración estimada del derecho de uso: ${this.formatCurrency(data.fiscal.usufructo.valor)}`, 15, y);
+        y += 10;
+      }
+
+      if (data.fiscal.colacion.length > 0) {
+        const colBody = data.fiscal.colacion.map(c => [c.concepto, this.formatCurrency(c.valor)]);
+        autoTable(this.doc, {
+          startY: y,
+          head: [['Concepto Colacionable (Donación)', 'Importe']],
+          body: colBody,
+          theme: 'striped',
+          headStyles: { fillColor: [180, 180, 180] },
+          margin: { left: 15 }
+        });
+      }
+    }
+  }
+
+  private drawDistributionChart(data: ReportData, y: number) {
+    const centerX = 160;
+    const centerY = y + 25;
+    const radius = 20;
+    
+    this.doc.setFontSize(9);
+    this.doc.setTextColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
+    this.doc.text("DISTRIBUCIÓN PATRIMONIAL", 15, y + 5);
+    
+    // Draw a simple stacked bar instead of pie for compatibility and clarity
+    let currentX = 15;
+    const totalW = 120;
+    const h = 8;
+    
+    data.reparto.lotes.forEach((lote, i) => {
+        const totalPatrimonio = data.reparto.lotes.reduce((sum, l) => sum + l.valorBienes, 0);
+        const porc = (lote.valorBienes / totalPatrimonio) * 100;
+        const w = (totalW * porc) / 100;
+        
+        // Pick a color
+        const colors = [
+          [79, 70, 229], [147, 51, 234], [236, 72, 153], [249, 115, 22], [34, 197, 94], [59, 130, 246]
+        ];
+        const color = colors[i % colors.length];
+        
+        this.doc.setFillColor(color[0], color[1], color[2]);
+        this.doc.rect(currentX, y + 10, w, h, 'F');
+        
+        // Legend
+        this.doc.rect(15, y + 25 + (i * 5), 3, 3, 'F');
+        this.doc.setFontSize(7);
+        this.doc.setTextColor(71, 85, 105);
+        this.doc.text(`${lote.nombreHeredero}: ${porc.toFixed(2)}%`, 20, y + 27.5 + (i * 5));
+        
+        currentX += w;
+    });
+    
+    this.doc.setDrawColor(226, 232, 240);
+    this.doc.rect(15, y + 10, totalW, h, 'S');
   }
 
   private addFooter() {
@@ -357,6 +503,66 @@ export class PdfGenerator {
         
         this.doc.text(`Herencia Justa AI - Informe Técnico`, 15, 290);
         this.doc.text(`Página ${i} de ${pageCount}`, 195, 290, { align: 'right' });
+    }
+  }
+
+  private addAssetBreakdownSection(data: ReportData) {
+    this.doc.addPage();
+    this.addHeader("Anexo: Desglose de Propiedad por Activo", "Detalle de copropiedad y proindivisos");
+    
+    let currentY = 50;
+
+    data.inventario.forEach((activo) => {
+        // Encontrar todos los herederos que tienen este activo
+        const participantes: any[] = [];
+        const valorTotalOriginal = activo.sub_partidas.reduce((a, b) => a + (b.cantidad * b.valor_unitario), 0);
+
+        data.reparto.lotes.forEach(lote => {
+            const items = lote.activos.filter(a => a.nombre === activo.nombre && !a.virtual);
+            if (items.length > 0) {
+                const valorAcumulado = items.reduce((sum, i) => sum + i.valor, 0);
+                const fraccionAcumulada = items.reduce((sum, i) => sum + i.fraccion, 0);
+                participantes.push([
+                    lote.nombreHeredero,
+                    `${(fraccionAcumulada * 100).toFixed(2)}%`,
+                    this.formatCurrency(valorAcumulado)
+                ]);
+            }
+        });
+
+        if (participantes.length > 0) {
+            // Check page break
+            if (currentY > 240) {
+                this.doc.addPage();
+                currentY = 20;
+            }
+
+            this.doc.setFontSize(11);
+            this.doc.setTextColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
+            this.doc.setFont('helvetica', 'bold');
+            this.doc.text(activo.nombre, 15, currentY);
+            
+            this.doc.setFontSize(9);
+            this.doc.setTextColor(100, 116, 139);
+            this.doc.setFont('helvetica', 'normal');
+            this.doc.text(`Valor de referencia: ${this.formatCurrency(valorTotalOriginal)}`, 140, currentY);
+
+            autoTable(this.doc, {
+                startY: currentY + 4,
+                head: [['Partícipe / Copropietario', '% de Propiedad', 'Valor Adjudicado']],
+                body: participantes,
+                theme: 'grid',
+                headStyles: { fillColor: [71, 85, 105] },
+                styles: { fontSize: 9 },
+                margin: { left: 15, right: 15 }
+            });
+
+            currentY = (this.doc as any).lastAutoTable.finalY + 12;
+        }
+    });
+
+    if (data.inventario.length === 0) {
+        this.doc.text("No hay activos físicos registrados.", 15, currentY);
     }
   }
 }

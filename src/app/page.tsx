@@ -19,12 +19,17 @@ import {
   Search,
   Save,
   CheckCircle2,
-  Copy
+  Copy,
+  HelpCircle
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PdfGenerator } from '../utils/PdfGenerator';
 import { PasswordModal } from '../components/PasswordModal';
+import { ConfigModal } from '../components/ConfigModal';
 import bcrypt from 'bcryptjs';
+
+// --- Constantes y Ayudantes ---
+const CONYUGE_ID = 999;
 
 // --- Componente de Input Numérico Formateado (Miles y Decimales) ---
 const FormattedNumberInput = ({ value, onChange, className, placeholder }: { value: number, onChange: (val: number) => void, className?: string, placeholder?: string }) => {
@@ -79,6 +84,7 @@ const FormattedNumberInput = ({ value, onChange, className, placeholder }: { val
   return (
     <input 
       type="text"
+      inputMode="decimal"
       value={localValue}
       onChange={handleChange}
       onBlur={handleBlur}
@@ -100,7 +106,8 @@ export default function Page() {
       id: '1',
       nombre: "Finca La Dehesa",
       divisible: true,
-      asignadoA: null as number | null,
+      esGanancial: true,
+      asignarA: [] as number[],
       sub_partidas: [
         { id: 's1', concepto: "Barbecho", cantidad: 2000, unidad: "m2", valor_unitario: 5 },
         { id: 's2', concepto: "Cultivo Almendro", cantidad: 5000, unidad: "m2", valor_unitario: 12 },
@@ -111,7 +118,8 @@ export default function Page() {
       id: '2',
       nombre: "Gran Explotación Agrícola",
       divisible: true,
-      asignadoA: null as number | null,
+      esGanancial: true,
+      asignarA: [] as number[],
       sub_partidas: [
         { id: 's4', concepto: "Almendro Secano", cantidad: 400000, unidad: "m2", valor_unitario: 12 },
         { id: 's5', concepto: "Barbecho", cantidad: 100000, unidad: "m2", valor_unitario: 5 }
@@ -121,7 +129,8 @@ export default function Page() {
       id: '3',
       nombre: "Casa en el Pueblo",
       divisible: false,
-      asignadoA: null as number | null,
+      esGanancial: true,
+      asignarA: [] as number[],
       sub_partidas: [
         { id: 's6', concepto: "Superficie", cantidad: 150, unidad: "m2", valor_unitario: 800 }
       ]
@@ -145,6 +154,16 @@ export default function Page() {
   const [pendingSessionCode, setPendingSessionCode] = useState<string | null>(null);
   const [isSessionProtected, setIsSessionProtected] = useState(false);
 
+  // --- Estado de Configuración Fiscal ---
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [fiscalConfig, setFiscalConfig] = useState({
+    gananciales: false,
+    usufructo: { enabled: false, edadViudo: 0 },
+    colacion: [] as { id: string; concepto: string; valor: number }[]
+  });
+
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+
   // --- Detección de Parámetro URL para Auto-Carga ---
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -161,114 +180,340 @@ export default function Page() {
   const totalActivos = useMemo(() => {
     return activos.map(a => ({
       ...a,
+      asignarA: a.asignarA || [], // Asegurar que sea array
       valorTotal: a.sub_partidas.reduce((acc, sub) => acc + (sub.cantidad * sub.valor_unitario), 0)
     }));
   }, [activos]);
 
   const caudalRelicto = useMemo(() => {
-    return totalActivos.reduce((acc, a) => acc + a.valorTotal, 0);
-  }, [totalActivos]);
+    let base = 0;
+    totalActivos.forEach(a => {
+      if (fiscalConfig.gananciales && a.esGanancial !== false) {
+        base += a.valorTotal * 0.5;
+      } else {
+        base += a.valorTotal;
+      }
+    });
+    
+    const colacionTotal = fiscalConfig.colacion.reduce((acc, c) => acc + (c.valor || 0), 0);
+    return base + colacionTotal;
+  }, [totalActivos, fiscalConfig]);
 
-  const cuotaIdeal = useMemo(() => caudalRelicto / numHerederos, [caudalRelicto, numHerederos]);
+  const numHerederosEfectivos = useMemo(() => {
+    return herederos.length + (fiscalConfig.gananciales ? 1 : 0);
+  }, [herederos, fiscalConfig.gananciales]);
 
-  /* 
-   * LÓGICA DE REPARTO
-   * 1. Respetar asignaciones manuales.
-   * 2. Repartir el resto para intentar igualar.
-   */
+  const cuotaIdeal = useMemo(() => caudalRelicto / numHerederosEfectivos, [caudalRelicto, numHerederosEfectivos]);
+
+  const valueAUsufructuar = useMemo(() => {
+    if (!fiscalConfig.usufructo.enabled) return 0;
+    const porc = Math.max(10, Math.min(70, 89 - fiscalConfig.usufructo.edadViudo));
+    
+    // El usufructo se calcula sobre la masa herencial física (caudal relicto sin colación)
+    let baseHerenciaFisica = 0;
+    totalActivos.forEach(a => {
+      if (fiscalConfig.gananciales && a.esGanancial !== false) {
+        baseHerenciaFisica += a.valorTotal * 0.5;
+      } else {
+        baseHerenciaFisica += a.valorTotal;
+      }
+    });
+    
+    return baseHerenciaFisica * (porc / 100);
+  }, [totalActivos, fiscalConfig]);
+
   const reparto = useMemo(() => {
-    // Inicializar lotes con nombres
-    let lotes = herederos.map(h => ({
+    // 1. Inicializar lotes
+    let lotesBase = herederos.map(h => ({
       id: h.id,
+      idHeredero: h.id,
       nombreHeredero: h.nombre,
       activos: [] as any[],
       valorBienes: 0
     }));
 
-    // Separar activos asignados y pendientes
-    let activosAsignados = totalActivos.filter(a => a.asignadoA !== null);
-    let activosPendientes = totalActivos.filter(a => a.asignadoA === null).sort((a, b) => b.valorTotal - a.valorTotal);
+    if (fiscalConfig.gananciales) {
+      lotesBase.push({
+        id: CONYUGE_ID,
+        idHeredero: CONYUGE_ID,
+        nombreHeredero: "Cónyuge Viudo/a",
+        activos: [] as any[],
+        valorBienes: 0
+      });
+    }
 
-    // 1. Procesar Asignaciones Manuales
-    activosAsignados.forEach(activo => {
-      const lote = lotes.find(l => l.id === activo.asignadoA);
-      // Solo asignar si el heredero existe (por si se borró)
-      if (lote) {
-        lote.activos.push({ nombre: activo.nombre, valor: activo.valorTotal, fraccion: 1, manual: true });
-        lote.valorBienes += activo.valorTotal;
-      } else {
-        // Fallback: si el heredero asignado no existe, lo tratamos como pendiente
-        activosPendientes.push(activo);
+    let lotes = lotesBase;
+
+    // 1b. Si hay Gananciales, asignar el 50% de los bienes GANANCIALES al cónyuge primero
+    if (fiscalConfig.gananciales) {
+      const loteConyuge = lotes.find(l => l.idHeredero === CONYUGE_ID);
+      if (loteConyuge) {
+        totalActivos.forEach(activo => {
+          if (activo.esGanancial !== false) {
+            const valorGanancial = activo.valorTotal * 0.5;
+            loteConyuge.activos.push({
+              id: "gan_" + activo.id,
+              nombre: activo.nombre,
+              valor: valorGanancial,
+              fraccion: 0.5,
+              tipo: 'gananciales'
+            });
+            loteConyuge.valorBienes += valorGanancial;
+          }
+        });
       }
-    });
+    }
 
-    // Re-ordenar pendientes por valor descendente para mejor ajuste
-    activosPendientes.sort((a, b) => b.valorTotal - a.valorTotal);
-
-    // 2. Asignar indivisibles pendientes (a quien tenga menos valor acumulado)
-    activosPendientes.filter(a => !a.divisible).forEach(activo => {
-      lotes.sort((a, b) => a.valorBienes - b.valorBienes);
-      lotes[0].activos.push({ nombre: activo.nombre, valor: activo.valorTotal, fraccion: 1, manual: false });
-      lotes[0].valorBienes += activo.valorTotal;
-    });
-
-    // 3. Asignar divisibles pendientes para equilibrar
-    activosPendientes.filter(a => a.divisible).forEach(activo => {
-      let valorRestanteActivo = activo.valorTotal;
+    // 2. Procesar asignaciones manuales (Simples y Múltiples)
+    const asignados = totalActivos.filter(a => (a as any).asignarA && (a as any).asignarA.length > 0);
+    asignados.forEach(activo => {
+      const pActivo = activo as any;
+      const numParticipantes = pActivo.asignarA.length;
       
-      while (valorRestanteActivo > 0.01) {
-        // Siempre buscar el más pobre para darle
-        lotes.sort((a, b) => a.valorBienes - b.valorBienes);
-        
-        let deficit = cuotaIdeal - lotes[0].valorBienes;
-        
-        if (deficit <= 0) {
-          // Todos excedidos (posible con asignaciones manuales grandes). 
-          // Repartir equitativamente entre todos para minimizar desvío, o dárselo al que menos tiene.
-          // Estrategia: dárselo al que menos tiene aunque se pase.
-          let aAsignar = valorRestanteActivo; // Asignar todo lo que queda
-          // O repartir entre todos? Repartirlo reduce la "injusticia" individual
-          // Vamos a repartir el resto entre todos proporcionalmente (simple)
-           let porcion = valorRestanteActivo / lotes.length;
-           lotes.forEach(l => {
-             l.activos.push({ nombre: activo.nombre, valor: porcion, fraccion: porcion / activo.valorTotal, manual: false });
-             l.valorBienes += porcion;
-           });
-           valorRestanteActivo = 0;
-        } else {
-          // Llenar el vacío del más pobre sin pasarse del valor restante del activo
-          let aAsignar = Math.min(deficit, valorRestanteActivo);
-          lotes[0].activos.push({ nombre: activo.nombre, valor: aAsignar, fraccion: aAsignar / activo.valorTotal, manual: false });
-          lotes[0].valorBienes += aAsignar;
-          valorRestanteActivo -= aAsignar;
+      // La masa a repartir es el 50% si es ganancial, o el 100% si es privativo
+      const factorMasa = (fiscalConfig.gananciales && activo.esGanancial !== false) ? 0.5 : 1;
+      const valorPorHeredero = (activo.valorTotal * factorMasa) / numParticipantes;
+      
+      pActivo.asignarA.forEach((hId: number) => {
+        const lote = lotes.find(l => l.idHeredero === hId);
+        if (lote) {
+          lote.activos.push({ 
+            id: activo.id + "_" + hId, 
+            nombre: activo.nombre, 
+            valor: valorPorHeredero, 
+            fraccion: factorMasa / numParticipantes, 
+            manual: true,
+            tipo: 'herencia'
+          });
+          lote.valorBienes += valorPorHeredero;
+        }
+      });
+    });
+
+    // 2b. Integrar Donaciones como "Activos Virtuales" para equilibrar el lote
+    fiscalConfig.colacion.forEach((donacion: any) => {
+      if (donacion.herederoId) {
+        const lote = lotes.find(l => l.idHeredero === donacion.herederoId);
+        if (lote) {
+          lote.activos.push({
+            id: "don_" + donacion.id,
+            nombre: donacion.concepto,
+            valor: donacion.valor,
+            fraccion: 1,
+            virtual: true // Marca para UI
+          });
+          lote.valorBienes += donacion.valor;
         }
       }
     });
 
-    // 4. Calcular compensaciones
-    const compensaciones = lotes.map(l => ({
-      heredero: l.id,
-      nombreHeredero: l.nombreHeredero,
-      diferencia: cuotaIdeal - l.valorBienes
-    }));
+    // 2c. CONSOLIDACIÓN DE PROPIEDAD PARA EL CÓNYUGE
+    // Si hay Gananciales, priorizamos dar el otro 50% (herencia) al cónyuge 
+    // para que sea dueño del 100% del activo, hasta completar su cuota ideal.
+    if (fiscalConfig.gananciales) {
+      const loteConyuge = lotes.find(l => l.idHeredero === CONYUGE_ID);
+      if (loteConyuge) {
+        // Considerar activos sin asignar manualmente
+        const candidatos = totalActivos.filter(a => a.asignarA.length === 0).sort((a, b) => a.valorTotal - b.valorTotal);
+        
+        for (const activo of candidatos) {
+          if (activo.esGanancial === false) continue; // Si es privativo, no consolidamos (ya es 100% herencia)
+          
+          const totalPropiedad = loteConyuge.activos.filter(a => a.tipo === 'gananciales').reduce((s, a) => s + a.valor, 0);
+          const deficit = cuotaIdeal - (loteConyuge.valorBienes - totalPropiedad);
+          if (deficit <= 0.01) break;
 
-    // 5. Ordenar por ID para visualización
-    lotes.sort((a, b) => a.id - b.id);
+          const valorHeredable = activo.valorTotal * 0.5;
+          const aAsignar = Math.min(deficit, valorHeredable);
+          
+          loteConyuge.activos.push({
+            id: activo.id + "_consol",
+            nombre: activo.nombre,
+            valor: aAsignar,
+            fraccion: aAsignar / activo.valorTotal,
+            tipo: 'herencia'
+          });
+          loteConyuge.valorBienes += aAsignar;
+          
+          // Si asignamos menos del total heredable (el 50%), marcamos la diferencia 
+          // para que se reparta en el siguiente paso. Si asignamos todo, lo quitamos de pendientes.
+          if (aAsignar >= valorHeredable - 0.01) {
+            (activo as any).yaConsolidado = true;
+          } else {
+            (activo as any).valorHeredableRestante = valorHeredable - aAsignar;
+          }
+        }
+      }
+    }
 
-    return { lotes, compensaciones };
-  }, [totalActivos, herederos, cuotaIdeal]);
+    // 3. Repartir pendientes (automático) sobre el 50% restante (o 100% si no hay gananciales)
+    const pendientes = totalActivos.filter(a => 
+      a.asignarA.length === 0 && 
+      !(a as any).yaConsolidado
+    ).sort((a, b) => b.valorTotal - a.valorTotal);
+
+    const factorOriginal = 1; // El cálculo de valorHeredable ya debe contemplar si es ganancial o no
+
+    // Primero indivisibles
+    pendientes.filter(a => !a.divisible).forEach(activo => {
+      lotes.sort((a, b) => a.valorBienes - b.valorBienes);
+      // El valor a heredar puede ser el original o el restante si hubo consolidación parcial
+      let valorHeredable = (activo as any).valorHeredableRestante !== undefined ? (activo as any).valorHeredableRestante : (activo.valorTotal * ((fiscalConfig.gananciales && activo.esGanancial !== false) ? 0.5 : 1));
+      lotes[0].activos.push({ 
+        id: activo.id, 
+        nombre: activo.nombre, 
+        valor: valorHeredable, 
+        fraccion: valorHeredable / activo.valorTotal, 
+        tipo: 'herencia' 
+      });
+      lotes[0].valorBienes += valorHeredable;
+    });
+
+    // Luego divisibles (incluyendo sobras de consolidación)
+    const divisiblesPendientes = totalActivos.filter(a => 
+      a.divisible && 
+      a.asignarA.length === 0 && 
+      (!(a as any).yaConsolidado || (a as any).valorHeredableRestante > 0.01)
+    );
+
+    divisiblesPendientes.forEach(activo => {
+      let restante = (activo as any).valorHeredableRestante !== undefined ? (activo as any).valorHeredableRestante : (activo.valorTotal * ((fiscalConfig.gananciales && activo.esGanancial !== false) ? 0.5 : 1));
+      let partNum = 0;
+      while (restante > 0.01) {
+        lotes.sort((a, b) => a.valorBienes - b.valorBienes);
+        const deficit = cuotaIdeal - lotes[0].valorBienes;
+        
+        if (deficit <= 0.01 || lotes.every(l => l.valorBienes >= cuotaIdeal - 0.01)) {
+          // Si todos están cubiertos o el "más pobre" ya está en su cuota,
+          // asignamos el resto a UNO SOLO (al más pobre actual o al cónyuge) 
+          // para evitar el proindiviso de "todos para todos".
+          const targetLote = fiscalConfig.gananciales ? (lotes.find(l => l.idHeredero === CONYUGE_ID) || lotes[0]) : lotes[0];
+          targetLote.activos.push({ 
+            id: `${activo.id}_rest_${targetLote.id}`, 
+            nombre: activo.nombre, 
+            valor: restante, 
+            fraccion: restante / activo.valorTotal, 
+            tipo: 'herencia' 
+          });
+          targetLote.valorBienes += restante;
+          restante = 0;
+        } else {
+          const aAsignar = Math.min(deficit, restante);
+          lotes[0].activos.push({ 
+            id: `${activo.id}_part_${partNum}`, 
+            nombre: activo.nombre, 
+            valor: aAsignar, 
+            fraccion: aAsignar / activo.valorTotal, 
+            tipo: 'herencia' 
+          });
+          lotes[0].valorBienes += aAsignar;
+          restante -= aAsignar;
+          partNum++;
+        }
+      }
+    });
+
+    // 4. UNIFICACIÓN DE ACTIVOS (Evitar filas duplicadas del mismo bien)
+    lotes.forEach(lote => {
+      const unificados: any[] = [];
+      lote.activos.forEach(act => {
+        const existente = unificados.find(u => u.nombre === act.nombre && u.tipo === act.tipo);
+        if (existente && !act.virtual) {
+          existente.valor += act.valor;
+          existente.fraccion += act.fraccion;
+          if (act.manual) existente.manual = true;
+        } else {
+          unificados.push({ ...act });
+        }
+      });
+      lote.activos = unificados;
+    });
+
+    // 5. AJUSTE DE COMPENSACIONES FÍSICAS (Especial Gananciales)
+    // Tras el reparto, si algún heredero tiene exceso y el cónyuge defecto,
+    // transferimos valor de sus bienes de herencia al cónyuge.
+    if (fiscalConfig.gananciales) {
+      const loteConyuge = lotes.find(l => l.idHeredero === CONYUGE_ID);
+      if (loteConyuge) {
+        lotes.forEach(lote => {
+          if (lote.idHeredero === CONYUGE_ID) return;
+          
+          let diferencia = lote.valorBienes - cuotaIdeal;
+          if (diferencia > 0.01) {
+             // Buscar un activo divisible de herencia para transferir
+             const activosHerencia = lote.activos.filter(a => a.tipo === 'herencia' && !a.virtual);
+             for (const act of activosHerencia) {
+                if (diferencia <= 0) break;
+                const aTransferir = Math.min(diferencia, act.valor - 0.01);
+                if (aTransferir <= 0) continue;
+                
+                // Mermar del heredero
+                act.valor -= aTransferir;
+                const fraccMermada = aTransferir / (act.valor / act.fraccion || 1); 
+                // Nota: fraccion es respecto al total original del activo.
+                // fraccion = valor / totalOriginal -> totalOriginal = valor / fraccion.
+                // Pero es más robusto usar el valorTotal calculado antes si lo tuviéramos a mano.
+                // Como no, aproximamos fraccion = act.fraccion - (aTransferir/totalOriginal).
+                const totalOriginal = totalActivos.find(ta => ta.nombre === act.nombre)?.valorTotal || 1;
+                act.fraccion -= aTransferir / totalOriginal;
+                lote.valorBienes -= aTransferir;
+                
+                // Añadir al cónyuge
+                const existenteConyuge = loteConyuge.activos.find(a => a.nombre === act.nombre && a.tipo === 'herencia');
+                if (existenteConyuge) {
+                  existenteConyuge.valor += aTransferir;
+                  existenteConyuge.fraccion += aTransferir / totalOriginal;
+                } else {
+                  loteConyuge.activos.push({
+                    id: "trans_" + act.id,
+                    nombre: act.nombre,
+                    valor: aTransferir,
+                    fraccion: aTransferir / totalOriginal,
+                    tipo: 'herencia'
+                  });
+                }
+                loteConyuge.valorBienes += aTransferir;
+                diferencia -= aTransferir;
+             }
+          }
+        });
+      }
+    }
+
+    // 6. Calcular compensaciones finales
+    const compensaciones = lotes.map(lote => {
+      const valorGananciales = lote.activos.filter(a => a.tipo === 'gananciales').reduce((sum, a) => sum + a.valor, 0);
+      const totalHerenciaRecibida = lote.valorBienes - valorGananciales;
+      
+      return {
+        idHeredero: lote.idHeredero,
+        heredero: lote.idHeredero,
+        nombreHeredero: lote.nombreHeredero,
+        diferencia: cuotaIdeal - totalHerenciaRecibida
+      };
+    });
+
+    return { lotes: lotes.sort((a, b) => a.idHeredero - b.idHeredero), compensaciones };
+  }, [totalActivos, herederos, cuotaIdeal, fiscalConfig]);
+
+  /* 
+   * LÓGICA DE REPARTO
+   * El reparto se calcula automáticamente en el useMemo superior 
+   * considerando asignaciones manuales, indivisibilidad y colación.
+   */
 
   // --- Funciones de Gestión ---
 
   const agregarActivo = () => {
-    const nuevo = {
-      id: Math.random().toString(36).substr(2, 9),
-      nombre: "Nuevo Activo",
-      divisible: true,
-      asignadoA: null,
-      sub_partidas: [{ id: Date.now().toString(), concepto: "General", cantidad: 1, unidad: "ud", valor_unitario: 0 }]
-    };
-    setActivos([...activos, nuevo]);
+    const nextId = activos.length > 0 ? (Math.max(...activos.map(a => parseInt(a.id) || 0)) + 1).toString() : "1";
+    setActivos([...activos, { 
+      id: nextId, 
+      nombre: `Nuevo Activo ${nextId}`, 
+      divisible: true, 
+      esGanancial: true,
+      asignarA: [], 
+      sub_partidas: [{ id: Date.now().toString(), concepto: "Concepto inicial", cantidad: 1, unidad: "global", valor_unitario: 0 }] 
+    }]);
   };
 
   const agregarHeredero = () => {
@@ -285,9 +530,42 @@ export default function Page() {
     setHerederos(herederos.map(h => h.id === id ? { ...h, nombre } : h));
   };
 
-  const asignarActivo = (activoId: string, herederoId: string) => {
-    const hId = herederoId === "" ? null : parseInt(herederoId);
-    setActivos(activos.map(a => a.id === activoId ? { ...a, asignadoA: hId } : a));
+  const sortearHerederos = () => {
+    // Solo barajamos los nombres de los herederos reales.
+    // El cónyuge es inamovible y no participa en el sorteo de nombres.
+    
+    const conRestricciones = new Set([
+      ...activos.filter(a => a.asignarA && a.asignarA.length > 0).flatMap(a => a.asignarA),
+      ...fiscalConfig.colacion.filter(c => (c as any).herederoId !== undefined).map(c => (c as any).herederoId)
+    ]);
+
+    // Filtrar solo los herederos de la lista principal
+    const libres = herederos.filter(h => !conRestricciones.has(h.id));
+    
+    if (libres.length > 1) {
+      const nombresBarajados = [...libres.map(h => h.nombre)].sort(() => Math.random() - 0.5);
+      
+      const nuevosHerederos = herederos.map(h => {
+        const libreIdx = libres.findIndex(l => l.id === h.id);
+        if (libreIdx !== -1) {
+          return { ...h, nombre: nombresBarajados[libreIdx] };
+        }
+        return h;
+      });
+      setHerederos(nuevosHerederos);
+    }
+  };
+
+  const asignarActivo = (activoId: string, hId: number) => {
+    setActivos(activos.map(a => {
+      if (a.id !== activoId) return a;
+      const current = a.asignarA || [];
+      const exists = current.includes(hId);
+      return { 
+        ...a, 
+        asignarA: exists ? current.filter(id => id !== hId) : [...current, hId] 
+      };
+    }));
   };
 
   const eliminarActivo = (id: string) => setActivos(activos.filter(a => a.id !== id));
@@ -320,7 +598,21 @@ export default function Page() {
     const { lotes, compensaciones } = reparto;
     const lineas: string[] = [];
 
+    // 0. Contexto Fiscal
+    if (fiscalConfig.gananciales) {
+      lineas.push("Se ha procedido a la liquidación previa de la sociedad de gananciales, deduciendo el 50% de la masa común a favor del cónyuge supérstite antes de determinar el caudal relicto hereditario.");
+    }
+
     lineas.push(`Se ha analizado un caudal relicto total de ${formatCurrency(caudalRelicto)} a repartir entre ${numHerederos} herederos, resultando en una cuota ideal de ${formatCurrency(cuotaIdeal)} por partícipe.`);
+
+    if (fiscalConfig.colacion.length > 0) {
+      const totalCol = fiscalConfig.colacion.reduce((a, b) => a + b.valor, 0);
+      lineas.push(`Este importe incluye ${formatCurrency(totalCol)} en concepto de masa de colación por donaciones realizadas en vida (Art. 1035 CC), las cuales se computan a efectos del cálculo de cuotas.`);
+    }
+
+    if (fiscalConfig.usufructo.enabled) {
+      lineas.push(`Se ha tenido en cuenta el usufructo vitalicio del cónyuge (calculado mediante la regla del 89), lo que representa una carga latente sobre la nuda propiedad de los bienes adjudicados.`);
+    }
 
     // 1. Análisis de Ajuste
     const lotesDesviados = lotes.filter(l => Math.abs(l.valorBienes - cuotaIdeal) > 1);
@@ -333,7 +625,7 @@ export default function Page() {
     // 2. Justificación de Indivisibles
     const indivisibles = activos.filter(a => !a.divisible);
     if (indivisibles.length > 0) {
-      lineas.push(`Se ha priorizado la adjudicación íntegra de activos indivisibles (${indivisibles.map(a => a.nombre).join(", ")}) para evitar condominios, lo cual genera los principales desequilibrios.`);
+      lineas.push(`Se ha priorizado la adjudicación íntegra de activos indivisibles (${indivisibles.map(a => a.nombre).join(", ")}) para evitar situaciones de proindiviso (copropiedad), las cuales suelen derivar en conflictos familiares y pérdida del valor económico del activo.`);
     }
 
     // 3. Compensaciones
@@ -344,9 +636,10 @@ export default function Page() {
       const totalCompensar = debenCompensar.reduce((acc, c) => acc + Math.abs(c.diferencia), 0);
       lineas.push(`Para perfeccionar la partición, es necesario establecer compensaciones en metálico por un total de ${formatCurrency(totalCompensar)}.`);
       lineas.push(`Concretamente, los herederos con exceso de adjudicación (${debenCompensar.map(c => c.nombreHeredero).join(", ")}) deberán abonar la diferencia a aquellos con defecto de adjudicación.`);
-    } else {
-      lineas.push("No se requieren compensaciones en metálico significativas.");
     }
+
+    // 4. Advertencia Fiscal
+    lineas.push("IMPORTANTE: Este informe es una estimación técnica. La valoración final y el Impuesto de Sucesiones pueden variar significativamente según la normativa específica de cada Comunidad Autónoma.");
 
     return lineas.join(" ");
   };
@@ -394,7 +687,14 @@ export default function Page() {
         },
         inventario: activos,
         reparto: reparto,
-        textoExplicativo: resumen
+        textoExplicativo: resumen,
+        fiscal: {
+          ...fiscalConfig,
+          usufructo: {
+            ...fiscalConfig.usufructo,
+            valor: valueAUsufructuar
+          }
+        }
       });
 
       setIsAnalizando(false);
@@ -442,6 +742,9 @@ export default function Page() {
             setHerederos(data.data.herederos);
             setActivos(data.data.activos);
             setMoneda(data.data.moneda);
+            if (data.data.fiscalConfig) {
+              setFiscalConfig(data.data.fiscalConfig);
+            }
             setSessionCode(data.code);
             setSessionLoadInput("");
             setAnalisisIA("");
@@ -498,6 +801,7 @@ export default function Page() {
         herederos,
         activos,
         moneda,
+        fiscalConfig,
         version: 1
       };
 
@@ -560,6 +864,9 @@ export default function Page() {
           setHerederos(data.data.herederos);
           setActivos(data.data.activos);
           setMoneda(data.data.moneda);
+          if (data.data.fiscalConfig) {
+            setFiscalConfig(data.data.fiscalConfig);
+          }
           setSessionCode(data.code);
           setSessionLoadInput("");
           setAnalisisIA(""); // Reset analisis anterior
@@ -623,6 +930,30 @@ export default function Page() {
             <option value="USD">USD ($)</option>
             <option value="MXN">MXN ($)</option>
           </select>
+        </div>
+
+        {/* Botones de Acción Global */}
+        <div className="flex items-center gap-2">
+           <button 
+             onClick={() => setShowConfigModal(true)}
+             className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-200 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"
+           >
+             <Scale className="w-4 h-4 text-indigo-600" />
+             <span className="hidden sm:inline">Config. Avanzada</span>
+           </button>
+
+           {sessionCode && (
+             <button 
+               onClick={() => saveSession()}
+               className={`
+                 flex items-center gap-2 px-4 py-2 rounded-xl shadow-sm border text-sm font-bold transition-all
+                 ${saveStatus === 'saved' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}
+               `}
+             >
+               <Save className={`w-4 h-4 ${saveStatus === 'saved' ? 'text-emerald-500' : 'text-indigo-600'}`} />
+               <span className="hidden sm:inline">{saveStatus === 'saved' ? 'Guardado' : 'Guardar'}</span>
+             </button>
+           )}
         </div>
 
         {/* Carga de Sesión */}
@@ -713,20 +1044,87 @@ export default function Page() {
                       >
                         {activo.divisible ? 'DIVISIBLE' : 'INDIVISIBLE'}
                       </button>
+
+                      {fiscalConfig.gananciales && (
+                        <button 
+                          onClick={() => setActivos(activos.map(a => a.id === activo.id ? { ...a, esGanancial: a.esGanancial === false ? true : false } : a))}
+                          className={`
+                            text-[10px] uppercase font-bold px-3 py-1.5 rounded-lg tracking-wider transition-all transform active:scale-95
+                            border-b-4
+                            ${activo.esGanancial !== false
+                              ? 'bg-indigo-100 text-indigo-700 border-indigo-200 hover:bg-indigo-200 hover:border-indigo-300 shadow-sm' 
+                              : 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200 hover:border-amber-300 shadow-sm'
+                            }
+                          `}
+                        >
+                          {activo.esGanancial !== false ? 'GANANCIAL' : 'PRIVATIVO'}
+                        </button>
+                      )}
                       
-                      <div className="flex items-center gap-2 bg-slate-50 px-2 py-1 rounded-lg border border-slate-100">
-                           <Users className="w-3.5 h-3.5 text-slate-400" />
-                           <select 
-                               value={activo.asignadoA || ""}
-                               onChange={(e) => asignarActivo(activo.id, e.target.value)}
-                               className="text-[11px] font-bold text-slate-600 bg-transparent border-none rounded py-0.5 pl-1 pr-5 focus:ring-0 focus:outline-none cursor-pointer"
-                           >
-                               <option value="">Reparto Automático</option>
-                               {herederos.map(h => (
-                                   <option key={h.id} value={h.id}>Asignar a {h.nombre}</option>
-                               ))}
-                           </select>
-                       </div>
+                      <div className="relative">
+                        <button 
+                          onClick={() => setActiveDropdown(activeDropdown === activo.id ? null : activo.id)}
+                          className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 hover:bg-slate-100 transition-colors text-[11px] font-bold text-slate-600 focus:ring-2 focus:ring-indigo-100"
+                        >
+                          <Users className="w-3.5 h-3.5 text-slate-400" />
+                          {activo.asignarA.length === 0 
+                            ? "Reparto Automático" 
+                            : `${activo.asignarA.length} Asignado${activo.asignarA.length > 1 ? 's' : ''}`
+                          }
+                          <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${activeDropdown === activo.id ? 'rotate-180' : ''}`} />
+                        </button>
+                        
+                        {/* Dropdown Menu */}
+                        {activeDropdown === activo.id && (
+                          <>
+                            <div 
+                              className="fixed inset-0 z-40" 
+                              onClick={() => setActiveDropdown(null)}
+                            />
+                            <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2 animate-in fade-in zoom-in duration-200">
+                              <div className="space-y-1">
+                                {/* Participantes: Herederos + Cónyuge opcional */}
+                                {[...herederos, ...(fiscalConfig.gananciales ? [{ id: CONYUGE_ID, nombre: "Cónyuge Viudo/a" }] : [])].map(p => {
+                                  const isChecked = activo.asignarA.includes(p.id);
+                                  return (
+                                    <button
+                                      key={p.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        asignarActivo(activo.id, p.id);
+                                      }}
+                                      className={`
+                                        flex items-center gap-3 w-full px-2 py-2 rounded-lg text-left transition-colors
+                                        ${isChecked ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-600'}
+                                      `}
+                                    >
+                                      <div className={`
+                                        w-4 h-4 rounded border flex items-center justify-center transition-colors
+                                        ${isChecked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}
+                                      `}>
+                                        {isChecked && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                                      </div>
+                                      <span className="text-xs font-medium truncate">{p.nombre}</span>
+                                    </button>
+                                  );
+                                })}
+                                
+                                {activo.asignarA.length > 0 && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActivos(activos.map(a => a.id === activo.id ? { ...a, asignarA: [] } : a));
+                                    }}
+                                    className="w-full text-center py-1 mt-1 text-[10px] text-slate-400 hover:text-slate-600 font-bold uppercase tracking-wider border-t border-slate-100 pt-2"
+                                  >
+                                    Limpiar selección
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <button onClick={() => eliminarActivo(activo.id)} className="hidden md:block text-slate-300 hover:text-red-500 transition-colors">
@@ -746,7 +1144,7 @@ export default function Page() {
                     
                     <div className="space-y-2">
                       {activo.sub_partidas.map(sub => (
-                        <div key={sub.id} className="grid grid-cols-1 md:grid-cols-12 items-start md:items-center gap-2 md:gap-4 hover:bg-slate-50 p-3 md:p-2 rounded-lg transition-colors group border border-slate-100 md:border-transparent mb-2 md:mb-0">
+                        <div key={sub.id} className={`grid grid-cols-1 md:grid-cols-12 items-start md:items-center gap-2 md:gap-4 hover:bg-slate-50 p-3 md:p-2 rounded-lg transition-colors group border border-slate-100 md:border-transparent mb-2 md:mb-0 ${sub.valor_unitario < 0 ? 'highlight-carga' : ''}`}>
                           
                           {/* Concepto - Full width on mobile */}
                           <div className="col-span-1 md:col-span-4 w-full">
@@ -858,23 +1256,43 @@ export default function Page() {
         </div>
 
         {/* Right Column: Análisis */}
-        <aside className="lg:col-span-5 space-y-6">
+        {/* Columna de Resultados */}
+        <aside className="lg:col-span-5 space-y-6 results-column">
           
           {/* Main Stats Card */}
-          <div className="bg-[#2D2B55] rounded-2xl p-6 md:p-8 text-white shadow-xl">
-            <h3 className="text-xs font-bold text-indigo-200 uppercase tracking-widest mb-4">Caudal Relicto Total</h3>
+          <div className="bg-[#2D2B55] rounded-2xl p-6 md:p-8 text-white shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-10">
+              <Calculator className="w-24 h-24" />
+            </div>
+            
+            <div className="flex items-center gap-2 mb-4">
+              <h3 className="text-xs font-bold text-indigo-200 uppercase tracking-widest">Caudal Relicto Total</h3>
+              <div className="tooltip-container">
+                <HelpCircle className="w-3.5 h-3.5 text-indigo-300 opacity-60 cursor-help" />
+                <span className="tooltip-text">
+                  Suma total de los bienes (menos cargas) más las donaciones colacionables. No incluye el 50% ganancial si está activo.
+                </span>
+              </div>
+            </div>
+
             <div className="text-3xl sm:text-4xl md:text-5xl font-bold mb-6 md:mb-8 tracking-tight">
               {formatCurrency(caudalRelicto)}
             </div>
             
             <div className="grid grid-cols-2 gap-8 border-t border-white/10 pt-6">
               <div>
-                <p className="text-indigo-300 text-xs font-medium mb-1">Cuota Individual</p>
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-indigo-300 text-xs font-medium">Cuota Individual</p>
+                  <div className="tooltip-container">
+                    <HelpCircle className="w-3 h-3 text-indigo-300 opacity-60 cursor-help" />
+                    <span className="tooltip-text">Valor que corresponde por ley a cada heredero según el reparto equitativo.</span>
+                  </div>
+                </div>
                 <p className="text-2xl font-bold">{formatCurrency(cuotaIdeal)}</p>
               </div>
               <div>
-                <p className="text-indigo-300 text-xs font-medium mb-1">Herederos</p>
-                <p className="text-2xl font-bold">{numHerederos}</p>
+                <p className="text-indigo-300 text-xs font-medium mb-1">Participantes</p>
+                <p className="text-2xl font-bold">{numHerederosEfectivos}</p>
               </div>
             </div>
           </div>
@@ -910,55 +1328,107 @@ export default function Page() {
 
           {/* Distribution List */}
           <div className="space-y-4">
-            <h3 className="font-bold text-slate-700 flex items-center gap-2">
-              <ArrowRightLeft className="w-5 h-5 text-indigo-600" /> Distribución de Lotes
-            </h3>
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                <ArrowRightLeft className="w-5 h-5 text-indigo-600" /> Distribución de Lotes
+              </h3>
+              <button 
+                onClick={sortearHerederos}
+                className="text-xs bg-indigo-50 text-indigo-600 font-bold px-3 py-1.5 rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-2"
+                title="Sorteo aleatorio de adjudicaciones"
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Sorteo
+              </button>
+            </div>
             
             <div className="space-y-4">
-              {reparto.lotes.map((lote) => (
-                <div key={lote.id} className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-                  <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-2">
-                    <input 
-                      value={lote.nombreHeredero}
-                      onChange={(e) => updateNombreHeredero(lote.id, e.target.value)}
-                      className="font-bold text-slate-800 bg-transparent border-none focus:outline-none hover:bg-slate-50 rounded px-1 -ml-1 w-full max-w-[200px]"
-                    />
-                    <span className="text-xs text-slate-500 font-medium whitespace-nowrap">
-                      Bienes: {formatCurrency(lote.valorBienes)}
-                    </span>
-                  </div>
+              {(() => {
+                const lotesOrdenados = [...reparto.lotes].sort((a, b) => {
+                  if (a.idHeredero === CONYUGE_ID) return -1;
+                  if (b.idHeredero === CONYUGE_ID) return 1;
+                  return a.idHeredero - b.idHeredero;
+                });
+                
+                return lotesOrdenados.map((lote) => {
+                  const esConyuge = lote.idHeredero === CONYUGE_ID;
+                  const activosGananciales = lote.activos.filter(a => a.tipo === 'gananciales');
+                  const activosHerencia = lote.activos.filter(a => a.tipo !== 'gananciales');
                   
-                  <div className="space-y-1 mb-4">
-                    {lote.activos.length === 0 && <p className="text-xs text-slate-400 italic">Sin bienes asignados</p>}
-                    {lote.activos.map((act: any, idx: number) => (
-                      <div key={idx} className="flex justify-between items-start text-xs py-1.5 px-2 hover:bg-slate-50 rounded">
-                        <span className="text-slate-600 font-medium truncate flex-1 pr-2 flex items-center gap-1">
-                          {act.manual && <span className="text-[10px] text-amber-500 font-bold" title="Asignado Manualmente">★</span>}
-                          {act.nombre}
+                  return (
+                    <div key={lote.id} className={`bg-white rounded-xl border p-5 shadow-sm transition-all ${esConyuge ? 'border-indigo-400 bg-indigo-50/10 ring-1 ring-indigo-400/20' : 'border-slate-200'}`}>
+                      <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-2">
+                        <div className="flex items-center gap-2">
+                          <input 
+                            value={lote.nombreHeredero}
+                            onChange={(e) => updateNombreHeredero(lote.id, e.target.value)}
+                            readOnly={esConyuge}
+                            className={`font-bold text-slate-800 bg-transparent border-none focus:outline-none rounded px-1 -ml-1 w-full max-w-[200px] ${esConyuge ? 'text-indigo-700 cursor-default' : 'hover:bg-slate-50'}`}
+                          />
+                          {esConyuge && <span className="text-[9px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider">Titular Ganancial</span>}
+                        </div>
+                        <span className={`text-xs font-bold whitespace-nowrap ${esConyuge ? 'text-indigo-600' : 'text-slate-500'}`}>
+                          Total: {formatCurrency(lote.valorBienes)}
                         </span>
-                        <span className="font-bold text-slate-700 shrink-0">{formatCurrency(act.valor)}</span>
                       </div>
-                    ))}
-                  </div>
+                      
+                      <div className="space-y-4 mb-4">
+                        {activosGananciales.length > 0 && (
+                          <div className="space-y-2">
+                            <h4 className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest pl-1">Propiedad (Gananciales)</h4>
+                            {activosGananciales.map((act) => (
+                              <div key={act.id} className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-indigo-100 group">
+                                <div className="flex flex-col">
+                                  <span className="text-sm font-medium text-slate-700">{act.nombre}</span>
+                                  <span className="text-[10px] text-indigo-400 font-bold">50.0% (Privativo)</span>
+                                </div>
+                                <span className="text-sm font-bold text-indigo-600">{formatCurrency(act.valor)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
 
-                  {(() => {
-                    const comp = reparto.compensaciones.find(c => c.heredero === lote.id);
-                    if (!comp || Math.abs(comp.diferencia) <= 0.01) return null;
-                    return (
-                      <div className="border-t border-slate-100 pt-3 mt-2 flex justify-between items-center text-xs">
-                        <span className="text-slate-400 font-medium">Compensación</span>
-                        <span className={`font-bold ${comp.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {comp.diferencia > 0 ? '+' : ''}
-                          {formatCurrency(comp.diferencia)}
-                        </span>
+                        <div className="space-y-2">
+                          {activosGananciales.length > 0 && <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Adjudicación (Herencia)</h4>}
+                          {activosHerencia.length === 0 && !activosGananciales.length && <p className="text-xs text-slate-400 italic text-center py-2">Sin bienes asignados</p>}
+                          {activosHerencia.map((act) => (
+                            <div key={act.id} className="flex justify-between items-center bg-slate-50/50 p-2.5 rounded-lg border border-slate-100 hover:bg-indigo-50/30 transition-colors group">
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium text-slate-700">{act.nombre}</span>
+                                  {act.manual && (
+                                    <div title="Asignación manual">
+                                      <Sparkles className="w-3 h-3 text-amber-400" />
+                                    </div>
+                                  )}
+                                  {act.virtual && <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-bold">Donación en vida</span>}
+                                </div>
+                                <span className="percentage-badge w-fit mt-1">
+                                  {((act.valor / (totalActivos.reduce((a, b) => a + b.valorTotal, 0) * (fiscalConfig.gananciales ? 0.5 : 1) || 1)) * 100).toFixed(1)}% de la herencia física
+                                </span>
+                              </div>
+                              <span className="text-sm font-bold text-slate-600 group-hover:text-indigo-700 transition-colors">
+                                {formatCurrency(act.valor)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    );
-                  })()}
-                </div>
-              ))}
+                      
+                      {!esConyuge && (
+                        <div className="pt-3 border-t border-slate-50 flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-slate-300 uppercase">Equilibrio</span>
+                          <span className={`text-xs font-bold ${reparto.compensaciones.find(c => c.heredero === lote.id)?.diferencia! >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                            {reparto.compensaciones.find(c => c.heredero === lote.id)?.diferencia! >= 0 ? '+' : ''}
+                            {formatCurrency(reparto.compensaciones.find(c => c.heredero === lote.id)?.diferencia!)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
-
         </aside>
       </main>
 
@@ -969,6 +1439,15 @@ export default function Page() {
         onConfirm={handlePasswordConfirm}
         onCancel={handlePasswordCancel}
         error={passwordError}
+      />
+
+      {/* Configuración Avanzada Modal */}
+      <ConfigModal 
+        isOpen={showConfigModal}
+        config={fiscalConfig}
+        herederos={herederos}
+        onClose={() => setShowConfigModal(false)}
+        onSave={(newConfig) => setFiscalConfig(newConfig)}
       />
     </div>
   );
