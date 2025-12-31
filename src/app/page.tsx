@@ -684,43 +684,52 @@ export default function Page() {
           <div className="space-y-6">
             {activos.map((activo) => (
               <div key={activo.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-5 flex items-center justify-between border-b border-slate-100">
-                  <div className="flex items-center gap-4 flex-1">
-                    <input 
-                      type="text" 
-                      value={activo.nombre}
-                      onChange={(e) => setActivos(activos.map(a => a.id === activo.id ? {...a, nombre: e.target.value} : a))}
-                      className="text-base md:text-lg font-bold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 p-0 w-full max-w-[200px] md:max-w-md truncate"
-                    />
-                    <button 
-                      onClick={() => toggleDivisible(activo.id)}
-                      className={`
-                        text-[10px] uppercase font-bold px-3 py-1.5 rounded-lg tracking-wider transition-all transform active:scale-95
-                        border-b-4
-                        ${activo.divisible 
-                          ? 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200 hover:border-emerald-300 shadow-sm' 
-                          : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 hover:border-slate-300 shadow-sm'
-                        }
-                      `}
-                    >
-                      {activo.divisible ? 'DIVISIBLE' : 'INDIVISIBLE'}
-                    </button>
-                    {/* Selector de Asignación */}
-                    <div className="flex items-center gap-2">
-                         <Users className="w-4 h-4 text-slate-400" />
-                         <select 
-                             value={activo.asignadoA || ""}
-                             onChange={(e) => asignarActivo(activo.id, e.target.value)}
-                             className="text-xs font-bold text-slate-600 bg-slate-50 border-none rounded py-1 pl-2 pr-6 focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                         >
-                             <option value="">Reparto Automático</option>
-                             {herederos.map(h => (
-                                 <option key={h.id} value={h.id}>Asignar a {h.nombre}</option>
-                             ))}
-                         </select>
-                     </div>
+                <div className="p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 gap-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3 md:gap-4 flex-1 w-full">
+                    <div className="flex items-center justify-between w-full md:w-auto gap-2">
+                      <input 
+                        type="text" 
+                        value={activo.nombre}
+                        onChange={(e) => setActivos(activos.map(a => a.id === activo.id ? {...a, nombre: e.target.value} : a))}
+                        className="text-lg md:text-xl font-extrabold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 p-0 flex-1 md:min-w-[300px] truncate"
+                        placeholder="Nombre del activo..."
+                      />
+                      <button onClick={() => eliminarActivo(activo.id)} className="md:hidden text-slate-300 hover:text-red-500 transition-colors p-1">
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button 
+                        onClick={() => toggleDivisible(activo.id)}
+                        className={`
+                          text-[10px] uppercase font-bold px-3 py-1.5 rounded-lg tracking-wider transition-all transform active:scale-95
+                          border-b-4
+                          ${activo.divisible 
+                            ? 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200 hover:border-emerald-300 shadow-sm' 
+                            : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 hover:border-slate-300 shadow-sm'
+                          }
+                        `}
+                      >
+                        {activo.divisible ? 'DIVISIBLE' : 'INDIVISIBLE'}
+                      </button>
+                      
+                      <div className="flex items-center gap-2 bg-slate-50 px-2 py-1 rounded-lg border border-slate-100">
+                           <Users className="w-3.5 h-3.5 text-slate-400" />
+                           <select 
+                               value={activo.asignadoA || ""}
+                               onChange={(e) => asignarActivo(activo.id, e.target.value)}
+                               className="text-[11px] font-bold text-slate-600 bg-transparent border-none rounded py-0.5 pl-1 pr-5 focus:ring-0 focus:outline-none cursor-pointer"
+                           >
+                               <option value="">Reparto Automático</option>
+                               {herederos.map(h => (
+                                   <option key={h.id} value={h.id}>Asignar a {h.nombre}</option>
+                               ))}
+                           </select>
+                       </div>
+                    </div>
                   </div>
-                  <button onClick={() => eliminarActivo(activo.id)} className="text-slate-300 hover:text-red-500 transition-colors">
+                  <button onClick={() => eliminarActivo(activo.id)} className="hidden md:block text-slate-300 hover:text-red-500 transition-colors">
                     <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
@@ -800,14 +809,14 @@ export default function Page() {
                                    {formatCurrency(sub.cantidad * sub.valor_unitario)}
                                  </div>
                                  
-                                 {/* Delete Action (Visible on mobile always, hover on desktop) */}
-                                 <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity absolute top-2 right-2 md:static">
+                                 {/* Delete Action (Always visible on touch/mobile, hover on desktop) */}
+                                 <div className="transition-opacity absolute top-2 right-2 md:static md:opacity-0 group-hover:opacity-100">
                                     <button 
                                       onClick={() => eliminarSubPartida(activo.id, sub.id)}
-                                      className="text-slate-300 hover:text-red-500 transition-colors p-1 hover:bg-red-50 rounded"
+                                      className="text-slate-300 hover:text-red-500 transition-colors p-2 md:p-1 hover:bg-red-50 rounded-lg md:rounded"
                                       title="Eliminar partida"
                                     >
-                                      <Trash2 className="w-4 h-4" />
+                                      <Trash2 className="w-5 h-5 md:w-4 md:h-4" />
                                     </button>
                                   </div>
                               </div>
@@ -852,9 +861,9 @@ export default function Page() {
         <aside className="lg:col-span-5 space-y-6">
           
           {/* Main Stats Card */}
-          <div className="bg-[#2D2B55] rounded-2xl p-8 text-white shadow-xl">
+          <div className="bg-[#2D2B55] rounded-2xl p-6 md:p-8 text-white shadow-xl">
             <h3 className="text-xs font-bold text-indigo-200 uppercase tracking-widest mb-4">Caudal Relicto Total</h3>
-            <div className="text-5xl font-bold mb-8 tracking-tight">
+            <div className="text-3xl sm:text-4xl md:text-5xl font-bold mb-6 md:mb-8 tracking-tight">
               {formatCurrency(caudalRelicto)}
             </div>
             
@@ -922,8 +931,8 @@ export default function Page() {
                   <div className="space-y-1 mb-4">
                     {lote.activos.length === 0 && <p className="text-xs text-slate-400 italic">Sin bienes asignados</p>}
                     {lote.activos.map((act: any, idx: number) => (
-                      <div key={idx} className="flex justify-between items-start text-xs py-1 px-2 hover:bg-slate-50 rounded">
-                        <span className="text-slate-600 font-medium truncate max-w-[60%] flex items-center gap-1">
+                      <div key={idx} className="flex justify-between items-start text-xs py-1.5 px-2 hover:bg-slate-50 rounded">
+                        <span className="text-slate-600 font-medium truncate flex-1 pr-2 flex items-center gap-1">
                           {act.manual && <span className="text-[10px] text-amber-500 font-bold" title="Asignado Manualmente">★</span>}
                           {act.nombre}
                         </span>
