@@ -148,6 +148,14 @@ export default function Page() {
     }
   ]);
 
+  const [expandedAssets, setExpandedAssets] = useState<string[]>(['cash', '1', '2', '3']);
+
+  const toggleAssetExpansion = (id: string) => {
+    setExpandedAssets(prev => 
+      prev.includes(id) ? prev.filter(a => a !== id) : [...prev, id]
+    );
+  };
+
   const [analisisIA, setAnalisisIA] = useState("");
   const [isAnalizando, setIsAnalizando] = useState(false);
   
@@ -551,8 +559,9 @@ export default function Page() {
       divisible: true, 
       esGanancial: true,
       asignarA: [], 
-      sub_partidas: [{ id: Date.now().toString(), concepto: "Concepto inicial", cantidad: 1, unidad: "global", valor_unitario: 0 }] 
+      sub_partidas: [{ id: Date.now().toString(), concepto: "Concepto inicial", cantidad: 1, unidad: "ud", valor_unitario: 0 }] 
     }]);
+    setExpandedAssets(prev => [...prev, nextId]);
   };
 
   const agregarHeredero = () => {
@@ -1056,262 +1065,299 @@ export default function Page() {
             </h2>
 
           <div className="space-y-6">
-            {activos.map((activo) => (
-              <div key={activo.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 gap-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-3 md:gap-4 flex-1 w-full">
-                    <div className="flex items-center justify-between w-full md:w-auto gap-2">
-                      <input 
-                        type="text" 
-                        value={activo.nombre}
-                        onChange={(e) => {
-                          if ((activo as any).isFixed) return;
-                          setActivos(activos.map(a => a.id === activo.id ? {...a, nombre: e.target.value} : a));
-                        }}
-                        readOnly={(activo as any).isFixed}
-                        className={`text-lg md:text-xl font-extrabold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 p-0 flex-1 md:min-w-[300px] truncate ${ (activo as any).isFixed ? 'select-none cursor-default' : '' }`}
-                        placeholder="Nombre del activo..."
-                      />
-                      {!(activo as any).isFixed && (
-                        <button onClick={() => eliminarActivo(activo.id)} className="md:hidden text-slate-300 hover:text-red-500 transition-colors p-1">
+            {activos.map((activo) => {
+              const isExpanded = expandedAssets.includes(activo.id);
+              const isFixed = (activo as any).isFixed;
+
+              return (
+                <div key={activo.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-300">
+                  {/* Asset Header - Clickable for Accordion */}
+                  <div 
+                    onClick={() => toggleAssetExpansion(activo.id)}
+                    className={`p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 gap-4 cursor-pointer hover:bg-slate-50/50 transition-colors ${!isExpanded ? 'border-b-transparent' : ''}`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 md:gap-4 flex-1 w-full">
+                      <div className="flex items-center justify-between w-full md:w-auto gap-2">
+                        <div className="flex items-center gap-2">
+                          <div className={`p-1.5 rounded-lg transition-colors ${isExpanded ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-50 text-slate-400'}`}>
+                            <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isExpanded ? '' : '-rotate-90'}`} />
+                          </div>
+                          <input 
+                            type="text" 
+                            value={activo.nombre}
+                            onClick={(e) => e.stopPropagation()} // Prevent expansion when renaming
+                            onChange={(e) => {
+                              if (isFixed) return;
+                              setActivos(activos.map(a => a.id === activo.id ? {...a, nombre: e.target.value} : a));
+                            }}
+                            readOnly={isFixed}
+                            className={`text-lg md:text-xl font-extrabold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 p-0 flex-1 md:min-w-[300px] truncate ${ isFixed ? 'select-none cursor-default' : '' }`}
+                            placeholder="Nombre del activo..."
+                          />
+                        </div>
+                        {!isFixed && (
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              eliminarActivo(activo.id);
+                            }} 
+                            className="md:hidden text-slate-300 hover:text-red-500 transition-colors p-1"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
+                      
+                      <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                        {!isFixed && (
+                          <button 
+                            onClick={() => toggleDivisible(activo.id)}
+                            className={`
+                              text-[10px] uppercase font-bold px-3 py-1.5 rounded-lg tracking-wider transition-all transform active:scale-95
+                              border-b-4
+                              ${activo.divisible 
+                                ? 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200 hover:border-emerald-300 shadow-sm' 
+                                : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 hover:border-slate-300 shadow-sm'
+                              }
+                            `}
+                          >
+                            {activo.divisible ? 'DIVISIBLE' : 'INDIVISIBLE'}
+                          </button>
+                        )}
+
+                        {fiscalConfig.gananciales && (
+                          <button 
+                            onClick={() => setActivos(activos.map(a => a.id === activo.id ? { ...a, esGanancial: a.esGanancial === false ? true : false } : a))}
+                            className={`
+                              text-[10px] uppercase font-bold px-3 py-1.5 rounded-lg tracking-wider transition-all transform active:scale-95
+                              border-b-4
+                              ${activo.esGanancial !== false
+                                ? 'bg-indigo-100 text-indigo-700 border-indigo-200 hover:bg-indigo-200 hover:border-indigo-300 shadow-sm' 
+                                : 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200 hover:border-amber-300 shadow-sm'
+                              }
+                            `}
+                          >
+                            {activo.esGanancial !== false ? 'GANANCIAL' : 'PRIVATIVO'}
+                          </button>
+                        )}
+                        
+                        <div className="relative">
+                          <button 
+                            onClick={() => setActiveDropdown(activeDropdown === activo.id ? null : activo.id)}
+                            className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 hover:bg-slate-100 transition-colors text-[11px] font-bold text-slate-600 focus:ring-2 focus:ring-indigo-100"
+                          >
+                            <Users className="w-3.5 h-3.5 text-slate-400" />
+                            {activo.asignarA.length === 0 
+                              ? "Reparto Automático" 
+                              : `${activo.asignarA.length} Asignado${activo.asignarA.length > 1 ? 's' : ''}`
+                            }
+                            <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${activeDropdown === activo.id ? 'rotate-180' : ''}`} />
+                          </button>
+                          
+                          {/* Dropdown Menu */}
+                          {activeDropdown === activo.id && (
+                            <>
+                              <div 
+                                className="fixed inset-0 z-40" 
+                                onClick={() => setActiveDropdown(null)}
+                              />
+                              <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2 animate-in fade-in zoom-in duration-200">
+                                <div className="space-y-1">
+                                  {/* Participantes: Herederos + Cónyuge opcional */}
+                                  {[...herederos, ...(fiscalConfig.gananciales ? [{ id: CONYUGE_ID, nombre: "Cónyuge Viudo/a" }] : [])].map(p => {
+                                    const isChecked = activo.asignarA.includes(p.id);
+                                    return (
+                                      <button
+                                        key={p.id}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          asignarActivo(activo.id, p.id);
+                                        }}
+                                        className={`
+                                          flex items-center gap-3 w-full px-2 py-2 rounded-lg text-left transition-colors
+                                          ${isChecked ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-600'}
+                                        `}
+                                      >
+                                        <div className={`
+                                          w-4 h-4 rounded border flex items-center justify-center transition-colors
+                                          ${isChecked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}
+                                        `}>
+                                          {isChecked && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                                        </div>
+                                        <span className="text-xs font-medium truncate">{p.nombre}</span>
+                                      </button>
+                                    );
+                                  })}
+                                  
+                                  {activo.asignarA.length > 0 && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActivos(activos.map(a => a.id === activo.id ? { ...a, asignarA: [] } : a));
+                                      }}
+                                      className="w-full text-center py-1 mt-1 text-[10px] text-slate-400 hover:text-slate-600 font-bold uppercase tracking-wider border-t border-slate-100 pt-2"
+                                    >
+                                      Limpiar selección
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex flex-col items-end">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Valor total</span>
+                        <span className="text-lg font-black text-indigo-600">
+                          {formatCurrency(activo.sub_partidas.reduce((acc, sub) => acc + (sub.cantidad * sub.valor_unitario), 0))}
+                        </span>
+                      </div>
+                      {!isFixed && (
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            eliminarActivo(activo.id);
+                          }}
+                          className="hidden md:flex items-center justify-center w-10 h-10 rounded-xl bg-rose-50 text-rose-500 hover:bg-rose-100 transition-colors shadow-sm"
+                        >
                           <Trash2 className="w-5 h-5" />
                         </button>
                       )}
                     </div>
-                    
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button 
-                        onClick={() => {
-                          if ((activo as any).isFixed) return;
-                          toggleDivisible(activo.id);
-                        }}
-                        disabled={(activo as any).isFixed}
-                        className={`
-                          text-[10px] uppercase font-bold px-3 py-1.5 rounded-lg tracking-wider transition-all transform active:scale-95
-                          border-b-4
-                          ${activo.divisible 
-                            ? 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200 hover:border-emerald-300 shadow-sm' 
-                            : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 hover:border-slate-300 shadow-sm'
-                          }
-                          ${ (activo as any).isFixed ? 'opacity-70 cursor-default' : '' }
-                        `}
-                      >
-                        {activo.divisible ? 'DIVISIBLE' : 'INDIVISIBLE'}
-                      </button>
-
-                      {fiscalConfig.gananciales && (
-                        <button 
-                          onClick={() => setActivos(activos.map(a => a.id === activo.id ? { ...a, esGanancial: a.esGanancial === false ? true : false } : a))}
-                          className={`
-                            text-[10px] uppercase font-bold px-3 py-1.5 rounded-lg tracking-wider transition-all transform active:scale-95
-                            border-b-4
-                            ${activo.esGanancial !== false
-                              ? 'bg-indigo-100 text-indigo-700 border-indigo-200 hover:bg-indigo-200 hover:border-indigo-300 shadow-sm' 
-                              : 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200 hover:border-amber-300 shadow-sm'
-                            }
-                          `}
-                        >
-                          {activo.esGanancial !== false ? 'GANANCIAL' : 'PRIVATIVO'}
-                        </button>
-                      )}
-                      
-                      <div className="relative">
-                        <button 
-                          onClick={() => setActiveDropdown(activeDropdown === activo.id ? null : activo.id)}
-                          className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 hover:bg-slate-100 transition-colors text-[11px] font-bold text-slate-600 focus:ring-2 focus:ring-indigo-100"
-                        >
-                          <Users className="w-3.5 h-3.5 text-slate-400" />
-                          {activo.asignarA.length === 0 
-                            ? "Reparto Automático" 
-                            : `${activo.asignarA.length} Asignado${activo.asignarA.length > 1 ? 's' : ''}`
-                          }
-                          <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${activeDropdown === activo.id ? 'rotate-180' : ''}`} />
-                        </button>
+                  </div>
+                  
+                  {/* Expanded Content (Details) */}
+                  {isExpanded && (
+                    <div className="p-5 animate-in slide-in-from-top-2 duration-300 ease-out fill-mode-forwards">
+                      <div className="mb-4">
+                        <div className="hidden md:grid grid-cols-12 text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 px-2 gap-4 border-b border-slate-50 pb-2">
+                          <div className={isFixed ? "col-span-8" : "col-span-4"}>Concepto</div>
+                          {!isFixed && (
+                            <>
+                              <div className="col-span-2 text-right">Cant.</div>
+                              <div className="col-span-2">Unidad</div>
+                            </>
+                          )}
+                          <div className="col-span-2 text-right">{isFixed ? "Importe" : "Val. Unit."}</div>
+                          <div className="col-span-2 text-right">Total</div>
+                        </div>
                         
-                        {/* Dropdown Menu */}
-                        {activeDropdown === activo.id && (
-                          <>
-                            <div 
-                              className="fixed inset-0 z-40" 
-                              onClick={() => setActiveDropdown(null)}
-                            />
-                            <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2 animate-in fade-in zoom-in duration-200">
-                              <div className="space-y-1">
-                                {/* Participantes: Herederos + Cónyuge opcional */}
-                                {[...herederos, ...(fiscalConfig.gananciales ? [{ id: CONYUGE_ID, nombre: "Cónyuge Viudo/a" }] : [])].map(p => {
-                                  const isChecked = activo.asignarA.includes(p.id);
-                                  return (
-                                    <button
-                                      key={p.id}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        asignarActivo(activo.id, p.id);
-                                      }}
-                                      className={`
-                                        flex items-center gap-3 w-full px-2 py-2 rounded-lg text-left transition-colors
-                                        ${isChecked ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-600'}
-                                      `}
-                                    >
-                                      <div className={`
-                                        w-4 h-4 rounded border flex items-center justify-center transition-colors
-                                        ${isChecked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}
-                                      `}>
-                                        {isChecked && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                                      </div>
-                                      <span className="text-xs font-medium truncate">{p.nombre}</span>
-                                    </button>
-                                  );
-                                })}
-                                
-                                {activo.asignarA.length > 0 && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setActivos(activos.map(a => a.id === activo.id ? { ...a, asignarA: [] } : a));
-                                    }}
-                                    className="w-full text-center py-1 mt-1 text-[10px] text-slate-400 hover:text-slate-600 font-bold uppercase tracking-wider border-t border-slate-100 pt-2"
-                                  >
-                                    Limpiar selección
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4">
-                    <div className="flex flex-col items-end">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Valor total</span>
-                      <span className="text-lg font-black text-indigo-600">
-                        {formatCurrency(activo.sub_partidas.reduce((acc, sub) => acc + (sub.cantidad * sub.valor_unitario), 0))}
-                      </span>
-                    </div>
-                    {!(activo as any).isFixed && (
-                      <button 
-                        onClick={() => eliminarActivo(activo.id)}
-                        className="hidden md:flex items-center justify-center w-10 h-10 rounded-xl bg-rose-50 text-rose-500 hover:bg-rose-100 transition-colors shadow-sm"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="p-5">
-                  <div className="mb-4">
-                    <div className="hidden md:grid grid-cols-12 text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 px-2 gap-4">
-                      <div className="col-span-4">Concepto</div>
-                      <div className="col-span-2 text-right">Cant.</div>
-                      <div className="col-span-2">Unidad</div>
-                      <div className="col-span-2 text-right">Val. Unit.</div>
-                      <div className="col-span-2 text-right">Total</div>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      {activo.sub_partidas.map(sub => (
-                        <div key={sub.id} className={`grid grid-cols-1 md:grid-cols-12 items-start md:items-center gap-2 md:gap-4 hover:bg-slate-50 p-3 md:p-2 rounded-lg transition-colors group border border-slate-100 md:border-transparent mb-2 md:mb-0 ${sub.valor_unitario < 0 ? 'highlight-carga' : ''}`}>
-                          
-                          {/* Concepto - Full width on mobile */}
-                          <div className="col-span-1 md:col-span-4 w-full">
-                            <span className="md:hidden text-[10px] font-bold text-indigo-400 uppercase mb-1 block">Concepto</span>
-                            <input 
-                              value={sub.concepto}
-                              onChange={(e) => actualizarSubpartida(activo.id, sub.id, 'concepto', e.target.value)}
-                              placeholder="Descripción..."
-                              className="w-full bg-transparent border-b border-transparent focus:border-indigo-300 focus:outline-none text-sm font-medium text-slate-700 placeholder:text-slate-300"
-                            />
-                          </div>
-
-                          <div className="col-span-1 md:col-span-8 grid grid-cols-2 md:grid-cols-8 gap-4 w-full">
-                              {/* Cantidad */}
-                              <div className="col-span-1 md:col-span-2">
-                                <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block">Cantidad</span>
-                                <FormattedNumberInput 
-                                  value={sub.cantidad || 0}
-                                  onChange={(val) => actualizarSubpartida(activo.id, sub.id, 'cantidad', val)}
-                                  className="w-full text-left md:text-right bg-transparent border-b border-transparent focus:border-indigo-300 focus:outline-none text-sm font-bold text-slate-600"
+                        <div className="space-y-4 md:space-y-2 mt-2">
+                          {activo.sub_partidas.map(sub => (
+                            <div key={sub.id} className={`grid grid-cols-1 md:grid-cols-12 items-start md:items-center gap-2 md:gap-4 hover:bg-slate-50 p-3 md:p-2 rounded-lg transition-colors group border border-slate-100 md:border-transparent ${sub.valor_unitario < 0 ? 'highlight-carga' : ''}`}>
+                              
+                              {/* Concepto */}
+                              <div className={`col-span-1 ${isFixed ? 'md:col-span-8' : 'md:col-span-4'} w-full`}>
+                                <span className="md:hidden text-[10px] font-bold text-indigo-400 uppercase mb-1 block">Concepto</span>
+                                <input 
+                                  value={sub.concepto}
+                                  onChange={(e) => actualizarSubpartida(activo.id, sub.id, 'concepto', e.target.value)}
+                                  placeholder="Descripción..."
+                                  className="w-full bg-transparent border-b border-transparent focus:border-indigo-300 focus:outline-none text-sm font-medium text-slate-700 placeholder:text-slate-300"
                                 />
                               </div>
 
-                              {/* Unidad Selector */}
-                              <div className="col-span-1 md:col-span-2">
-                                <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block">Unidad</span>
-                                <select 
-                                  value={sub.unidad}
-                                  onChange={(e) => actualizarSubpartida(activo.id, sub.id, 'unidad', e.target.value)}
-                                  className="w-full bg-slate-100 rounded border-none text-xs font-medium text-slate-600 focus:ring-1 focus:ring-indigo-500 py-1"
-                                >
-                                  <option value="ud">Unidades (ud)</option>
-                                  <option value="m2">Superficie (m²)</option>
-                                  <option value="ha">Hectáreas (ha)</option>
-                                  <option value="global">Partida Alzada (€)</option>
-                                </select>
-                              </div>
+                              <div className={`col-span-1 ${isFixed ? 'md:col-span-4' : 'md:col-span-8'} grid ${isFixed ? 'grid-cols-1 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-8'} gap-4 w-full`}>
+                                  {!isFixed && (
+                                    <>
+                                      {/* Cantidad */}
+                                      <div className="col-span-1 md:col-span-2">
+                                        <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block">Cantidad</span>
+                                        <FormattedNumberInput 
+                                          value={sub.cantidad || 0}
+                                          onChange={(val) => actualizarSubpartida(activo.id, sub.id, 'cantidad', val)}
+                                          className="w-full text-left md:text-right bg-transparent border-b border-transparent focus:border-indigo-300 focus:outline-none text-sm font-bold text-slate-600"
+                                        />
+                                      </div>
 
-                              {/* Valor Unitario */}
-                              <div className="col-span-1 md:col-span-2 relative flex flex-col md:flex-row items-start md:items-center justify-end">
-                                <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block w-full">Valor Unit.</span>
-                                <div className="relative w-full">
-                                    <FormattedNumberInput 
-                                      value={sub.valor_unitario || 0}
-                                      onChange={(val) => actualizarSubpartida(activo.id, sub.id, 'valor_unitario', val)}
-                                      className="w-full text-left md:text-right bg-transparent border-b border-transparent focus:border-indigo-300 focus:outline-none text-sm font-medium text-indigo-600 pr-8"
-                                    />
-                                    <span className="absolute right-0 top-0 md:top-auto text-[10px] text-slate-400 pointer-events-none">
-                                    {sub.unidad === 'm2' ? '€/m²' : 
-                                    sub.unidad === 'ha' ? '€/ha' : 
-                                    sub.unidad === 'global' ? '€' : '€/ud'}
-                                    </span>
-                                </div>
-                              </div>
+                                      {/* Unidad Selector */}
+                                      <div className="col-span-1 md:col-span-2">
+                                        <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block">Unidad</span>
+                                        <select 
+                                          value={sub.unidad}
+                                          onChange={(e) => actualizarSubpartida(activo.id, sub.id, 'unidad', e.target.value)}
+                                          className="w-full bg-slate-100 rounded border-none text-xs font-medium text-slate-600 focus:ring-1 focus:ring-indigo-500 py-1 px-2"
+                                        >
+                                          <option value="ud">Unidades (ud)</option>
+                                          <option value="m2">Superficie (m²)</option>
+                                          <option value="ha">Hectáreas (ha)</option>
+                                          <option value="global">Partida Alzada (€)</option>
+                                        </select>
+                                      </div>
+                                    </>
+                                  )}
 
-                              {/* Total */}
-                              <div className="col-span-1 md:col-span-2 flex flex-col md:flex-row items-end md:items-center justify-end gap-2">
-                                 <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block w-full text-right">Total</span>
-                                 <div className="text-sm font-bold text-slate-900 shrink-0">
-                                   {formatCurrency(sub.cantidad * sub.valor_unitario)}
-                                 </div>
-                                 
-                                 {/* Delete Action (Always visible on touch/mobile, hover on desktop) */}
-                                 <div className="transition-opacity absolute top-2 right-2 md:static md:opacity-0 group-hover:opacity-100">
-                                    <button 
-                                      onClick={() => eliminarSubPartida(activo.id, sub.id)}
-                                      className="text-slate-300 hover:text-red-500 transition-colors p-2 md:p-1 hover:bg-red-50 rounded-lg md:rounded"
-                                      title="Eliminar partida"
-                                    >
-                                      <Trash2 className="w-5 h-5 md:w-4 md:h-4" />
-                                    </button>
+                                  {/* Valor Unitario / Importe */}
+                                  <div className={`col-span-1 ${isFixed ? 'md:col-span-2' : 'md:col-span-2'} relative flex flex-col md:flex-row items-start md:items-center justify-end`}>
+                                    <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block w-full">{isFixed ? "Importe" : "Valor Unit."}</span>
+                                    <div className="relative w-full">
+                                        <FormattedNumberInput 
+                                          value={sub.valor_unitario || 0}
+                                          onChange={(val) => {
+                                            if (isFixed) {
+                                              // Ensure quantity is 1 for fixed cash items
+                                              actualizarSubpartida(activo.id, sub.id, 'cantidad', 1);
+                                            }
+                                            actualizarSubpartida(activo.id, sub.id, 'valor_unitario', val);
+                                          }}
+                                          className="w-full text-left md:text-right bg-transparent border-b border-transparent focus:border-indigo-300 focus:outline-none text-sm font-medium text-indigo-600 pr-6"
+                                        />
+                                        <span className="absolute right-0 top-0 text-[10px] text-slate-400 pointer-events-none mt-1">€</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Total */}
+                                  <div className={`col-span-1 ${isFixed ? 'md:col-span-2' : 'md:col-span-2'} flex flex-col md:flex-row items-end md:items-center justify-end gap-2`}>
+                                     <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block w-full text-right">Total</span>
+                                     <div className="text-sm font-bold text-slate-900 shrink-0">
+                                       {formatCurrency(sub.cantidad * sub.valor_unitario)}
+                                     </div>
+                                     
+                                     {/* Delete Action (Always visible on touch/mobile, hover on desktop) */}
+                                     {(!isFixed || activo.sub_partidas.length > 1) && (
+                                       <div className="transition-opacity absolute top-2 right-2 md:static md:opacity-0 group-hover:opacity-100">
+                                          <button 
+                                            onClick={() => eliminarSubPartida(activo.id, sub.id)}
+                                            className="text-slate-300 hover:text-red-500 transition-colors p-2 md:p-1 hover:bg-red-50 rounded-lg md:rounded"
+                                            title="Eliminar partida"
+                                          >
+                                            <Trash2 className="w-5 h-5 md:w-4 md:h-4" />
+                                          </button>
+                                        </div>
+                                     )}
                                   </div>
                               </div>
-                          </div>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      </div>
+
+                      <button 
+                        onClick={() => {
+                          const id = Date.now().toString();
+                          setActivos(activos.map(a => {
+                            if (a.id !== activo.id) return a;
+                            return {
+                              ...a,
+                              sub_partidas: [...a.sub_partidas, { id, concepto: isFixed ? "Nueva entrada de efectivo" : "Nuevo concepto", cantidad: 1, unidad: isFixed ? "global" : "ud", valor_unitario: 0 }]
+                            };
+                          }));
+                        }}
+                        className="w-full py-3 border-2 border-dashed border-slate-100 rounded-xl text-slate-400 text-sm font-bold hover:bg-slate-50 hover:border-indigo-100 hover:text-indigo-400 transition-all flex items-center justify-center gap-2 group"
+                      >
+                        <div className="bg-slate-100 p-1 rounded-lg group-hover:bg-indigo-100 transition-colors">
+                          <Plus className="w-4 h-4" />
+                        </div>
+                        {isFixed ? "Añadir partida de efectivo" : "Añadir sub-partida / concepto"}
+                      </button>
                     </div>
-                  </div>
-                  
-                  <div className="flex items-center justify-between pt-4 mt-2 border-t border-slate-100">
-                    <button 
-                      onClick={() => {
-                        const nuevaSub = { id: Date.now().toString(), concepto: "Nueva partida", cantidad: 1, unidad: "ud", valor_unitario: 0 };
-                        setActivos(activos.map(a => a.id === activo.id ? {...a, sub_partidas: [...a.sub_partidas, nuevaSub]} : a));
-                      }}
-                      className="text-xs text-indigo-600 font-bold flex items-center gap-1 hover:text-indigo-800"
-                    >
-                      <Plus className="w-3 h-3" /> Añadir partida
-                    </button>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-xs font-bold text-slate-400 uppercase">Total:</span>
-                      <span className="text-lg font-bold text-slate-900">
-                        {formatCurrency(activo.sub_partidas.reduce((a, s) => a + (s.cantidad * s.valor_unitario), 0))}
-                      </span>
-                    </div>
-                  </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {/* Main Add Asset Button at the bottom */}
             <button 
