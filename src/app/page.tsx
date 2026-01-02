@@ -103,6 +103,17 @@ export default function Page() {
   const [moneda, setMoneda] = useState('EUR');
   const [activos, setActivos] = useState([
     {
+      id: 'cash',
+      nombre: "Caja / Dinero en Efectivo",
+      divisible: true,
+      esGanancial: true,
+      isFixed: true, // Asset cannot be deleted
+      asignarA: [] as number[],
+      sub_partidas: [
+        { id: 'scash', concepto: "Efectivo y Bancos", cantidad: 0, unidad: "€", valor_unitario: 1 }
+      ]
+    },
+    {
       id: '1',
       nombre: "Finca La Dehesa",
       divisible: true,
@@ -346,18 +357,37 @@ export default function Page() {
       }
     }
 
-    // 3. Repartir pendientes (automático) sobre el 50% restante (o 100% si no hay gananciales)
+    // 3. Repartir pendientes (automático)
+    
+    // 3a. DINERO / CAJA (Especial): Se reparte a partes iguales entre todos los herederos
+    // a menos que se haya asignado manualmente o marcado como indivisible.
+    const activoCash = totalActivos.find(a => a.id === 'cash');
+    if (activoCash && activoCash.asignarA.length === 0 && activoCash.divisible && !(activoCash as any).yaConsolidado) {
+      const numParticipantes = lotes.length;
+      const factorMasa = (fiscalConfig.gananciales && activoCash.esGanancial !== false) ? 0.5 : 1;
+      const valorPorHeredero = (activoCash.valorTotal * factorMasa) / numParticipantes;
+      
+      lotes.forEach(lote => {
+        lote.activos.push({ 
+          id: `cash_${lote.id}`, 
+          nombre: activoCash.nombre, 
+          valor: valorPorHeredero, 
+          fraccion: (factorMasa / numParticipantes), 
+          tipo: 'herencia'
+        });
+        lote.valorBienes += valorPorHeredero;
+      });
+      (activoCash as any).yaConsolidado = true;
+    }
+
     const pendientes = totalActivos.filter(a => 
       a.asignarA.length === 0 && 
       !(a as any).yaConsolidado
     ).sort((a, b) => b.valorTotal - a.valorTotal);
 
-    const factorOriginal = 1; // El cálculo de valorHeredable ya debe contemplar si es ganancial o no
-
-    // Primero indivisibles
+    // 3b. Primero indivisibles: Seguir asignando al más pobre para evitar fragmentación
     pendientes.filter(a => !a.divisible).forEach(activo => {
       lotes.sort((a, b) => a.valorBienes - b.valorBienes);
-      // El valor a heredar puede ser el original o el restante si hubo consolidación parcial
       let valorHeredable = (activo as any).valorHeredableRestante !== undefined ? (activo as any).valorHeredableRestante : (activo.valorTotal * ((fiscalConfig.gananciales && activo.esGanancial !== false) ? 0.5 : 1));
       lotes[0].activos.push({ 
         id: activo.id, 
@@ -369,46 +399,55 @@ export default function Page() {
       lotes[0].valorBienes += valorHeredable;
     });
 
-    // Luego divisibles (incluyendo sobras de consolidación)
+    // 3c. Luego divisibles: REPARTO EQUILIBRADO (Novedad)
     const divisiblesPendientes = totalActivos.filter(a => 
       a.divisible && 
       a.asignarA.length === 0 && 
-      (!(a as any).yaConsolidado || (a as any).valorHeredableRestante > 0.01)
+      (!(a as any).yaConsolidado || ((a as any).valorHeredableRestante && (a as any).valorHeredableRestante > 0.01))
     );
 
     divisiblesPendientes.forEach(activo => {
       let restante = (activo as any).valorHeredableRestante !== undefined ? (activo as any).valorHeredableRestante : (activo.valorTotal * ((fiscalConfig.gananciales && activo.esGanancial !== false) ? 0.5 : 1));
-      let partNum = 0;
+      
+      // Intentamos repartir para equilibrar el déficit de todos
       while (restante > 0.01) {
-        lotes.sort((a, b) => a.valorBienes - b.valorBienes);
-        const deficit = cuotaIdeal - lotes[0].valorBienes;
+        // Encontrar quiénes están por debajo de la cuota ideal
+        const conDeficit = lotes.filter(l => l.valorBienes < cuotaIdeal - 0.01);
         
-        if (deficit <= 0.01 || lotes.every(l => l.valorBienes >= cuotaIdeal - 0.01)) {
-          // Si todos están cubiertos o el "más pobre" ya está en su cuota,
-          // asignamos el resto a UNO SOLO (al más pobre actual o al cónyuge) 
-          // para evitar el proindiviso de "todos para todos".
-          const targetLote = fiscalConfig.gananciales ? (lotes.find(l => l.idHeredero === CONYUGE_ID) || lotes[0]) : lotes[0];
-          targetLote.activos.push({ 
-            id: `${activo.id}_rest_${targetLote.id}`, 
-            nombre: activo.nombre, 
-            valor: restante, 
-            fraccion: restante / activo.valorTotal, 
-            tipo: 'herencia' 
+        if (conDeficit.length === 0) {
+          // Si nadie tiene déficit, repartir lo que sobra a partes iguales entre todos
+          const aCadaUno = restante / lotes.length;
+          lotes.forEach(lote => {
+            lote.activos.push({ 
+              id: `${activo.id}_sob_${lote.id}`, 
+              nombre: activo.nombre, 
+              valor: aCadaUno, 
+              fraccion: aCadaUno / activo.valorTotal, 
+              tipo: 'herencia' 
+            });
+            lote.valorBienes += aCadaUno;
           });
-          targetLote.valorBienes += restante;
           restante = 0;
         } else {
-          const aAsignar = Math.min(deficit, restante);
-          lotes[0].activos.push({ 
-            id: `${activo.id}_part_${partNum}`, 
-            nombre: activo.nombre, 
-            valor: aAsignar, 
-            fraccion: aAsignar / activo.valorTotal, 
-            tipo: 'herencia' 
+          // Repartir proporcionalmente al déficit para que todos lleguen a la vez a la cuota
+          const deficitTotal = conDeficit.reduce((acc, l) => acc + (cuotaIdeal - l.valorBienes), 0);
+          const aRepartirAhorra = Math.min(restante, deficitTotal);
+          
+          conDeficit.forEach(lote => {
+            const miDeficit = cuotaIdeal - lote.valorBienes;
+            const miParte = (miDeficit / deficitTotal) * aRepartirAhorra;
+            if (miParte > 0.01) {
+              lote.activos.push({ 
+                id: `${activo.id}_bal_${lote.id}`, 
+                nombre: activo.nombre, 
+                valor: miParte, 
+                fraccion: miParte / activo.valorTotal, 
+                tipo: 'herencia' 
+              });
+              lote.valorBienes += miParte;
+            }
           });
-          lotes[0].valorBienes += aAsignar;
-          restante -= aAsignar;
-          partNum++;
+          restante -= aRepartirAhorra;
         }
       }
     });
@@ -568,7 +607,11 @@ export default function Page() {
     }));
   };
 
-  const eliminarActivo = (id: string) => setActivos(activos.filter(a => a.id !== id));
+  const eliminarActivo = (id: string) => {
+    const activo = activos.find(a => a.id === id);
+    if (activo && (activo as any).isFixed) return;
+    setActivos(activos.filter(a => a.id !== id));
+  };
 
   const actualizarSubpartida = (activoId: string, subId: string, campo: string, valor: any) => {
     setActivos(activos.map(a => {
@@ -1021,18 +1064,28 @@ export default function Page() {
                       <input 
                         type="text" 
                         value={activo.nombre}
-                        onChange={(e) => setActivos(activos.map(a => a.id === activo.id ? {...a, nombre: e.target.value} : a))}
-                        className="text-lg md:text-xl font-extrabold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 p-0 flex-1 md:min-w-[300px] truncate"
+                        onChange={(e) => {
+                          if ((activo as any).isFixed) return;
+                          setActivos(activos.map(a => a.id === activo.id ? {...a, nombre: e.target.value} : a));
+                        }}
+                        readOnly={(activo as any).isFixed}
+                        className={`text-lg md:text-xl font-extrabold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 p-0 flex-1 md:min-w-[300px] truncate ${ (activo as any).isFixed ? 'select-none cursor-default' : '' }`}
                         placeholder="Nombre del activo..."
                       />
-                      <button onClick={() => eliminarActivo(activo.id)} className="md:hidden text-slate-300 hover:text-red-500 transition-colors p-1">
-                        <Trash2 className="w-5 h-5" />
-                      </button>
+                      {!(activo as any).isFixed && (
+                        <button onClick={() => eliminarActivo(activo.id)} className="md:hidden text-slate-300 hover:text-red-500 transition-colors p-1">
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      )}
                     </div>
                     
                     <div className="flex items-center gap-2 flex-wrap">
                       <button 
-                        onClick={() => toggleDivisible(activo.id)}
+                        onClick={() => {
+                          if ((activo as any).isFixed) return;
+                          toggleDivisible(activo.id);
+                        }}
+                        disabled={(activo as any).isFixed}
                         className={`
                           text-[10px] uppercase font-bold px-3 py-1.5 rounded-lg tracking-wider transition-all transform active:scale-95
                           border-b-4
@@ -1040,6 +1093,7 @@ export default function Page() {
                             ? 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200 hover:border-emerald-300 shadow-sm' 
                             : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 hover:border-slate-300 shadow-sm'
                           }
+                          ${ (activo as any).isFixed ? 'opacity-70 cursor-default' : '' }
                         `}
                       >
                         {activo.divisible ? 'DIVISIBLE' : 'INDIVISIBLE'}
@@ -1127,9 +1181,23 @@ export default function Page() {
                       </div>
                     </div>
                   </div>
-                  <button onClick={() => eliminarActivo(activo.id)} className="hidden md:block text-slate-300 hover:text-red-500 transition-colors">
-                    <Trash2 className="w-5 h-5" />
-                  </button>
+
+                  <div className="flex items-center gap-4">
+                    <div className="flex flex-col items-end">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Valor total</span>
+                      <span className="text-lg font-black text-indigo-600">
+                        {formatCurrency(activo.sub_partidas.reduce((acc, sub) => acc + (sub.cantidad * sub.valor_unitario), 0))}
+                      </span>
+                    </div>
+                    {!(activo as any).isFixed && (
+                      <button 
+                        onClick={() => eliminarActivo(activo.id)}
+                        className="hidden md:flex items-center justify-center w-10 h-10 rounded-xl bg-rose-50 text-rose-500 hover:bg-rose-100 transition-colors shadow-sm"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
                 
                 <div className="p-5">
