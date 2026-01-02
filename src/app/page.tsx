@@ -110,7 +110,7 @@ export default function Page() {
       isFixed: true, // Asset cannot be deleted
       asignarA: [] as number[],
       sub_partidas: [
-        { id: 'scash', concepto: "Efectivo y Bancos", cantidad: 0, unidad: "€", valor_unitario: 1 }
+        { id: 'scash', concepto: "Efectivo y Bancos", cantidad: 1, unidad: "€", valor_unitario: 0 }
       ]
     },
     {
@@ -366,101 +366,145 @@ export default function Page() {
     }
 
     // 3. Repartir pendientes (automático)
+    // EXCLUIMOS "Caja / Dinero en Efectivo" para que actúe como buffer al final
     
-    // 3a. DINERO / CAJA (Especial): Se reparte a partes iguales entre todos los herederos
-    // a menos que se haya asignado manualmente o marcado como indivisible.
-    const activoCash = totalActivos.find(a => a.id === 'cash');
-    if (activoCash && activoCash.asignarA.length === 0 && activoCash.divisible && !(activoCash as any).yaConsolidado) {
-      const numParticipantes = lotes.length;
-      const factorMasa = (fiscalConfig.gananciales && activoCash.esGanancial !== false) ? 0.5 : 1;
-      const valorPorHeredero = (activoCash.valorTotal * factorMasa) / numParticipantes;
-      
-      lotes.forEach(lote => {
-        lote.activos.push({ 
-          id: `cash_${lote.id}`, 
-          nombre: activoCash.nombre, 
-          valor: valorPorHeredero, 
-          fraccion: (factorMasa / numParticipantes), 
-          tipo: 'herencia'
-        });
-        lote.valorBienes += valorPorHeredero;
-      });
-      (activoCash as any).yaConsolidado = true;
-    }
-
-    const pendientes = totalActivos.filter(a => 
+    const pendientesFisicos = totalActivos.filter(a => 
+      a.id !== 'cash' &&
       a.asignarA.length === 0 && 
       !(a as any).yaConsolidado
     ).sort((a, b) => b.valorTotal - a.valorTotal);
 
-    // 3b. Primero indivisibles: Seguir asignando al más pobre para evitar fragmentación
-    pendientes.filter(a => !a.divisible).forEach(activo => {
-      lotes.sort((a, b) => a.valorBienes - b.valorBienes);
-      let valorHeredable = (activo as any).valorHeredableRestante !== undefined ? (activo as any).valorHeredableRestante : (activo.valorTotal * ((fiscalConfig.gananciales && activo.esGanancial !== false) ? 0.5 : 1));
-      lotes[0].activos.push({ 
-        id: activo.id, 
-        nombre: activo.nombre, 
-        valor: valorHeredable, 
-        fraccion: valorHeredable / activo.valorTotal, 
-        tipo: 'herencia' 
-      });
-      lotes[0].valorBienes += valorHeredable;
-    });
+    pendientesFisicos.forEach(activo => {
+      const factorMasa = (fiscalConfig.gananciales && activo.esGanancial !== false) ? 0.5 : 1;
+      let valorHeredable = (activo as any).valorHeredableRestante !== undefined 
+        ? (activo as any).valorHeredableRestante 
+        : (activo.valorTotal * factorMasa);
 
-    // 3c. Luego divisibles: REPARTO EQUILIBRADO (Novedad)
-    const divisiblesPendientes = totalActivos.filter(a => 
-      a.divisible && 
-      a.asignarA.length === 0 && 
-      (!(a as any).yaConsolidado || ((a as any).valorHeredableRestante && (a as any).valorHeredableRestante > 0.01))
-    );
+      if (valorHeredable <= 0.01) return;
 
-    divisiblesPendientes.forEach(activo => {
-      let restante = (activo as any).valorHeredableRestante !== undefined ? (activo as any).valorHeredableRestante : (activo.valorTotal * ((fiscalConfig.gananciales && activo.esGanancial !== false) ? 0.5 : 1));
-      
-      // Intentamos repartir para equilibrar el déficit de todos
-      while (restante > 0.01) {
-        // Encontrar quiénes están por debajo de la cuota ideal
-        const conDeficit = lotes.filter(l => l.valorBienes < cuotaIdeal - 0.01);
-        
-        if (conDeficit.length === 0) {
-          // Si nadie tiene déficit, repartir lo que sobra a partes iguales entre todos
-          const aCadaUno = restante / lotes.length;
-          lotes.forEach(lote => {
-            lote.activos.push({ 
-              id: `${activo.id}_sob_${lote.id}`, 
-              nombre: activo.nombre, 
-              valor: aCadaUno, 
-              fraccion: aCadaUno / activo.valorTotal, 
-              tipo: 'herencia' 
-            });
-            lote.valorBienes += aCadaUno;
+      // Intentar asignar el 100% a alguien que tenga "hueco" en su cuota ideal
+      const candidatosQueCaben = lotes
+        .filter(l => l.valorBienes + valorHeredable <= cuotaIdeal + 0.01)
+        .sort((a, b) => a.valorBienes - b.valorBienes);
+
+      if (candidatosQueCaben.length > 0) {
+        // Cabe entero en al menos un heredero. Se lo damos al que menos tenga.
+        const lote = candidatosQueCaben[0];
+        lote.activos.push({ 
+          id: activo.id, 
+          nombre: activo.nombre, 
+          valor: valorHeredable, 
+          fraccion: valorHeredable / activo.valorTotal, 
+          tipo: 'herencia' 
+        });
+        lote.valorBienes += valorHeredable;
+      } else {
+        // No cabe entero en nadie sin superar su cuota ideal.
+        if (!activo.divisible) {
+          // Si es indivisible, se lo damos al que menos tenga aunque se pase.
+          const lote = [...lotes].sort((a, b) => a.valorBienes - b.valorBienes)[0];
+          lote.activos.push({ 
+            id: activo.id, 
+            nombre: activo.nombre, 
+            valor: valorHeredable, 
+            fraccion: valorHeredable / activo.valorTotal, 
+            tipo: 'herencia' 
           });
-          restante = 0;
+          lote.valorBienes += valorHeredable;
         } else {
-          // Repartir proporcionalmente al déficit para que todos lleguen a la vez a la cuota
-          const deficitTotal = conDeficit.reduce((acc, l) => acc + (cuotaIdeal - l.valorBienes), 0);
-          const aRepartirAhorra = Math.min(restante, deficitTotal);
-          
-          conDeficit.forEach(lote => {
-            const miDeficit = cuotaIdeal - lote.valorBienes;
-            const miParte = (miDeficit / deficitTotal) * aRepartirAhorra;
-            if (miParte > 0.01) {
-              lote.activos.push({ 
-                id: `${activo.id}_bal_${lote.id}`, 
-                nombre: activo.nombre, 
-                valor: miParte, 
-                fraccion: miParte / activo.valorTotal, 
-                tipo: 'herencia' 
+          // Si es divisible, repartimos entre los que tienen déficit para equilibrar.
+          let restante = valorHeredable;
+          while (restante > 0.01) {
+            const conDeficit = lotes.filter(l => l.valorBienes < cuotaIdeal - 0.01);
+            if (conDeficit.length === 0) {
+              // Nadie tiene déficit, repartir el resto a partes iguales
+              const aCadaUno = restante / lotes.length;
+              lotes.forEach(lote => {
+                lote.activos.push({ 
+                  id: `${activo.id}_sob_${lote.id}`, 
+                  nombre: activo.nombre, 
+                  valor: aCadaUno, 
+                  fraccion: aCadaUno / activo.valorTotal, 
+                  tipo: 'herencia' 
+                });
+                lote.valorBienes += aCadaUno;
               });
-              lote.valorBienes += miParte;
+              restante = 0;
+            } else {
+              // Repartir proporcionalmente al déficit
+              const deficitTotal = conDeficit.reduce((acc, l) => acc + (cuotaIdeal - l.valorBienes), 0);
+              const aRepartirAhora = Math.min(restante, deficitTotal);
+              conDeficit.forEach(lote => {
+                const miDeficit = cuotaIdeal - lote.valorBienes;
+                const miParte = (miDeficit / deficitTotal) * aRepartirAhora;
+                if (miParte > 0.01) {
+                  lote.activos.push({ 
+                    id: `${activo.id}_bal_${lote.id}`, 
+                    nombre: activo.nombre, 
+                    valor: miParte, 
+                    fraccion: miParte / activo.valorTotal, 
+                    tipo: 'herencia' 
+                  });
+                  lote.valorBienes += miParte;
+                }
+              });
+              restante -= aRepartirAhora;
             }
-          });
-          restante -= aRepartirAhorra;
+          }
         }
       }
     });
 
-    // 4. UNIFICACIÓN DE ACTIVOS (Evitar filas duplicadas del mismo bien)
+    // 4. Reparto de "Caja / Dinero en Efectivo" como buffer de equilibrio
+    const activoCash = totalActivos.find(a => a.id === 'cash');
+    if (activoCash && activoCash.asignarA.length === 0 && !(activoCash as any).yaConsolidado) {
+      const factorMasa = (fiscalConfig.gananciales && activoCash.esGanancial !== false) ? 0.5 : 1;
+      let cashRestante = activoCash.valorTotal * factorMasa;
+
+      // Primero: Intentar llenar los déficits de los herederos
+      const conDeficit = lotes.filter(l => l.valorBienes < cuotaIdeal - 0.01)
+                             .sort((a, b) => b.valorBienes - a.valorBienes); // Empezar por los que casi llegan o proporcional? Mejor proporcional.
+      
+      if (conDeficit.length > 0 && cashRestante > 0) {
+        const deficitTotal = conDeficit.reduce((acc, l) => acc + (cuotaIdeal - l.valorBienes), 0);
+        const aRepartir = Math.min(cashRestante, deficitTotal);
+        
+        conDeficit.forEach(lote => {
+          const miDeficit = cuotaIdeal - lote.valorBienes;
+          const miParte = (miDeficit / deficitTotal) * aRepartir;
+          if (miParte > 0.01) {
+            lote.activos.push({ 
+              id: `cash_${lote.id}`, 
+              nombre: activoCash.nombre, 
+              valor: miParte, 
+              fraccion: miParte / activoCash.valorTotal, 
+              tipo: 'herencia' 
+            });
+            lote.valorBienes += miParte;
+          }
+        });
+        cashRestante -= aRepartir;
+      }
+
+      // Segundo: Si aún sobra cash (raro si hay deudas, pero posible), repartir a partes iguales entre todos
+      if (cashRestante > 0.01) {
+        const aCadaUno = cashRestante / lotes.length;
+        lotes.forEach(lote => {
+          lote.activos.push({ 
+            id: `cash_extra_${lote.id}`, 
+            nombre: activoCash.nombre, 
+            valor: aCadaUno, 
+            fraccion: aCadaUno / activoCash.valorTotal, 
+            tipo: 'herencia' 
+          });
+          lote.valorBienes += aCadaUno;
+        });
+      }
+    } else if (activoCash && activoCash.asignarA.length > 0) {
+       // Si fue asignado manualmente, ya se procesó en el paso 2
+    }
+
+    // 5. UNIFICACIÓN DE ACTIVOS (Evitar filas duplicadas del mismo bien)
     lotes.forEach(lote => {
       const unificados: any[] = [];
       lote.activos.forEach(act => {
@@ -476,7 +520,7 @@ export default function Page() {
       lote.activos = unificados;
     });
 
-    // 5. AJUSTE DE COMPENSACIONES FÍSICAS (Especial Gananciales)
+    // 6. AJUSTE DE COMPENSACIONES FÍSICAS (Especial Gananciales)
     // Tras el reparto, si algún heredero tiene exceso y el cónyuge defecto,
     // transferimos valor de sus bienes de herencia al cónyuge.
     if (fiscalConfig.gananciales) {
@@ -496,11 +540,6 @@ export default function Page() {
                 
                 // Mermar del heredero
                 act.valor -= aTransferir;
-                const fraccMermada = aTransferir / (act.valor / act.fraccion || 1); 
-                // Nota: fraccion es respecto al total original del activo.
-                // fraccion = valor / totalOriginal -> totalOriginal = valor / fraccion.
-                // Pero es más robusto usar el valorTotal calculado antes si lo tuviéramos a mano.
-                // Como no, aproximamos fraccion = act.fraccion - (aTransferir/totalOriginal).
                 const totalOriginal = totalActivos.find(ta => ta.nombre === act.nombre)?.valorTotal || 1;
                 act.fraccion -= aTransferir / totalOriginal;
                 lote.valorBienes -= aTransferir;
@@ -527,7 +566,7 @@ export default function Page() {
       }
     }
 
-    // 6. Calcular compensaciones finales
+    // 7. Calcular compensaciones finales
     const compensaciones = lotes.map(lote => {
       const valorGananciales = lote.activos.filter(a => a.tipo === 'gananciales').reduce((sum, a) => sum + a.valor, 0);
       const totalHerenciaRecibida = lote.valorBienes - valorGananciales;
@@ -623,7 +662,7 @@ export default function Page() {
   };
 
   const actualizarSubpartida = (activoId: string, subId: string, campo: string, valor: any) => {
-    setActivos(activos.map(a => {
+    setActivos(prev => prev.map(a => {
       if (a.id !== activoId) return a;
       return {
         ...a,
@@ -1070,7 +1109,7 @@ export default function Page() {
               const isFixed = (activo as any).isFixed;
 
               return (
-                <div key={activo.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-300">
+                <div key={activo.id} className={`rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-300 ${isFixed ? 'bg-blue-50/40' : 'bg-white'}`}>
                   {/* Asset Header - Clickable for Accordion */}
                   <div 
                     onClick={() => toggleAssetExpansion(activo.id)}
@@ -1528,15 +1567,21 @@ export default function Page() {
                         </div>
                       </div>
                       
-                      {!esConyuge && (
-                        <div className="pt-3 border-t border-slate-50 flex justify-between items-center">
-                          <span className="text-[10px] font-bold text-slate-300 uppercase">Equilibrio</span>
-                          <span className={`text-xs font-bold ${reparto.compensaciones.find(c => c.heredero === lote.id)?.diferencia! >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                            {reparto.compensaciones.find(c => c.heredero === lote.id)?.diferencia! >= 0 ? '+' : ''}
-                            {formatCurrency(reparto.compensaciones.find(c => c.heredero === lote.id)?.diferencia!)}
-                          </span>
-                        </div>
-                      )}
+                      {!esConyuge && (() => {
+                        const compensacion = reparto.compensaciones.find(c => c.heredero === lote.id);
+                        const diferencia = compensacion?.diferencia || 0;
+                        if (Math.abs(diferencia) < 0.01) return null;
+
+                        return (
+                          <div className="pt-3 border-t border-slate-50 flex justify-between items-center">
+                            <span className="text-[10px] font-bold text-slate-300 uppercase">Equilibrio</span>
+                            <span className={`text-xs font-bold ${diferencia >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                              {diferencia >= 0 ? '+' : ''}
+                              {formatCurrency(diferencia)}
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 });
