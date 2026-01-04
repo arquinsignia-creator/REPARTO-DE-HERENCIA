@@ -15,6 +15,7 @@ interface Activo {
   divisible: boolean;
   sub_partidas: SubPartida[];
   valorTotal?: number; // Calculado
+  gastosEspeciales?: number;
 }
 
 interface LoteItem {
@@ -61,6 +62,16 @@ export interface ReportData {
     gananciales: boolean;
     usufructo: { enabled: boolean; edadViudo: number; valor: number };
     colacion: { id: string; concepto: string; valor: number }[];
+    comunidadAutonoma?: string;
+    porcentajeImpuestoEstimado?: number;
+  };
+  liquidez?: {
+    gastosGenerales: number;
+    gastosActivos: number;
+    totalGastosEstimados: number;
+    efectivoDisponibleTotal: number;
+    balanceLiquidez: number;
+    balancePorHeredero?: number;
   };
 }
 
@@ -249,11 +260,10 @@ export class PdfGenerator {
 
         autoTable(this.doc, {
             startY: invY,
-            head: [[{ content: activo.nombre, styles: { fillColor: [241, 245, 249], textColor: [30, 41, 59] } }, 'Divisible', 'Detalle', 'Valor Total']],
+            head: [[{ content: activo.nombre, styles: { fillColor: [241, 245, 249], textColor: [30, 41, 59] } }, 'Detalle', 'Valor Total']],
             body: [
                 [
                     { content: 'Resumen del Activo', styles: { fontStyle: 'bold' } },
-                    { content: activo.divisible ? 'SÍ' : 'NO' },
                     { content: activo.sub_partidas.length + ' partidas' },
                     { content: this.formatCurrency(total), styles: { fontStyle: 'bold' } }
                 ],
@@ -368,11 +378,52 @@ export class PdfGenerator {
     this.addSectionTitle("4. Memoria Explicativa", currentY);
     currentY += 10;
     
-    this.doc.setFontSize(10);
-    this.doc.setFont('helvetica', 'normal');
-    this.doc.setTextColor(30, 41, 59); // slate-800
     const splitText = this.doc.splitTextToSize(data.textoExplicativo, 180);
     this.doc.text(splitText, 15, currentY);
+
+    // NUEVO APARTADO: LIQUIDEZ Y GASTOS
+    if (data.liquidez) {
+        currentY = (this.doc as any).lastAutoTable?.finalY + 20 || currentY + 40;
+        if (currentY > 230) {
+            this.doc.addPage();
+            currentY = 20;
+        }
+        this.addSectionTitle("5. Análisis de Liquidez y Gastos de Adjudicación", currentY);
+        currentY += 10;
+
+        const diffPerHeir = data.liquidez.balancePorHeredero || (data.liquidez.balanceLiquidez / (data.config.numHerederos || 1));
+
+        const liqBody = [
+            ['1. Efectivo / Caja Disponible en Herencia', this.formatCurrency(data.liquidez.efectivoDisponibleTotal)],
+            ['2. Gastos Estimados Generales (Impuestos CCAA + Gestión)', this.formatCurrency(data.liquidez.gastosGenerales)],
+            ['3. Impuestos/Gastos Específicos sobre Activos', this.formatCurrency(data.liquidez.gastosActivos)],
+            ['TOTAL ESTIMADO DE GASTOS', { content: this.formatCurrency(data.liquidez.totalGastosEstimados), styles: { fontStyle: 'bold', textColor: [220, 38, 38] } }],
+            ['', ''],
+            [
+              data.liquidez.balanceLiquidez >= 0 ? 'SOBRANTE LIQUIDEZ POR CADA HEREDERO' : 'APORTACIÓN NECESARIA POR CADA HEREDERO', 
+              { 
+                content: this.formatCurrency(Math.abs(diffPerHeir)), 
+                styles: { 
+                    fontStyle: 'bold', 
+                    textColor: data.liquidez.balanceLiquidez >= 0 ? [22, 163, 74] : [220, 38, 38] 
+                } 
+              }
+            ]
+        ];
+
+        autoTable(this.doc, {
+            startY: currentY + 5,
+            body: liqBody as any,
+            theme: 'plain',
+            styles: { fontSize: 9 },
+            columnStyles: { 1: { halign: 'right' } }
+        });
+        
+        currentY = (this.doc as any).lastAutoTable.finalY + 10;
+        this.doc.setFontSize(8);
+        this.doc.setTextColor(100, 116, 139);
+        this.doc.text("* Esta estimación es meramente informativa basada en los valores declarados y las medias de la CCAA seleccionada.", 15, currentY);
+    }
 
     // NUEVO APARTADO: DESGLOSE POR ACTIVO
     this.addAssetBreakdownSection(data);
@@ -448,44 +499,75 @@ export class PdfGenerator {
   }
 
   private drawDistributionChart(data: ReportData, y: number) {
-    const centerX = 160;
-    const centerY = y + 25;
-    const radius = 20;
+    const margin = 15;
+    const totalWidth = 180;
     
+    // 1. GRÁFICO DE DISTRIBUCIÓN PATRIMONIAL (Stacked Bar)
     this.doc.setFontSize(9);
     this.doc.setTextColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
-    this.doc.text("DISTRIBUCIÓN PATRIMONIAL", 15, y + 5);
+    this.doc.setFont('helvetica', 'bold');
+    this.doc.text("DISTRIBUCIÓN PATRIMONIAL REAL", margin, y + 5);
     
-    // Draw a simple stacked bar instead of pie for compatibility and clarity
-    let currentX = 15;
-    const totalW = 120;
-    const h = 8;
+    let currentX = margin;
+    const barWidth = 120;
+    const barHeight = 6;
+    
+    const colors = [
+      [79, 70, 229], [147, 51, 234], [236, 72, 153], [249, 115, 22], [34, 197, 94], [59, 130, 246]
+    ];
     
     data.reparto.lotes.forEach((lote, i) => {
-        const totalPatrimonio = data.reparto.lotes.reduce((sum, l) => sum + l.valorBienes, 0);
-        const porc = (lote.valorBienes / totalPatrimonio) * 100;
-        const w = (totalW * porc) / 100;
+        const totalAdjudicado = data.reparto.lotes.reduce((sum, l) => sum + l.valorBienes, 0);
+        const porc = (lote.valorBienes / totalAdjudicado) * 100;
+        const w = (barWidth * porc) / 100;
         
-        // Pick a color
-        const colors = [
-          [79, 70, 229], [147, 51, 234], [236, 72, 153], [249, 115, 22], [34, 197, 94], [59, 130, 246]
-        ];
         const color = colors[i % colors.length];
-        
         this.doc.setFillColor(color[0], color[1], color[2]);
-        this.doc.rect(currentX, y + 10, w, h, 'F');
+        this.doc.rect(currentX, y + 8, w, barHeight, 'F');
         
         // Legend
-        this.doc.rect(15, y + 25 + (i * 5), 3, 3, 'F');
+        this.doc.rect(margin, y + 20 + (i * 5), 3, 3, 'F');
         this.doc.setFontSize(7);
+        this.doc.setFont('helvetica', 'normal');
         this.doc.setTextColor(71, 85, 105);
-        this.doc.text(`${lote.nombreHeredero}: ${porc.toFixed(2)}%`, 20, y + 27.5 + (i * 5));
+        this.doc.text(`${lote.nombreHeredero}: ${porc.toFixed(1)}% (${this.formatCurrency(lote.valorBienes)})`, margin + 5, y + 22.5 + (i * 5));
         
         currentX += w;
     });
     
     this.doc.setDrawColor(226, 232, 240);
-    this.doc.rect(15, y + 10, totalW, h, 'S');
+    this.doc.rect(margin, y + 8, barWidth, barHeight, 'S');
+
+    // 2. GRÁFICO DE EQUIDAD (Bar Chart Comparisons)
+    // Mostramos la Cuota Ideal vs Realidad para demostrar transparencia
+    const eqX = margin + barWidth + 15;
+    const eqMaxH = 25;
+    const eqW = 40;
+    
+    this.doc.setFontSize(9);
+    this.doc.setTextColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
+    this.doc.setFont('helvetica', 'bold');
+    this.doc.text("EQUIDAD DE ADJUDICACIÓN", eqX, y + 5);
+    
+    // Draw target line (Cuota Ideal)
+    this.doc.setDrawColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
+    this.doc.setLineWidth(0.1);
+    this.doc.line(eqX, y + 10 + eqMaxH, eqX + eqW, y + 10 + eqMaxH); // Base
+    
+    const subBarW = eqW / data.reparto.lotes.length;
+    data.reparto.lotes.forEach((lote, i) => {
+        const ratio = Math.min(1.2, lote.valorBienes / (data.metricas.cuotaIdeal || 1));
+        const h = eqMaxH * ratio;
+        
+        const color = colors[i % colors.length];
+        this.doc.setFillColor(color[0], color[1], color[2], 0.6); // Slightly transparent
+        this.doc.rect(eqX + (i * subBarW) + 1, y + 10 + (eqMaxH - h), subBarW - 2, h, 'F');
+    });
+
+    // Label for target
+    this.doc.setFontSize(6);
+    this.doc.setTextColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
+    this.doc.text("OBJETIVO EQUIDAD 100%", eqX, y + 10 + eqMaxH + 3);
   }
 
   private addFooter() {
@@ -508,61 +590,94 @@ export class PdfGenerator {
 
   private addAssetBreakdownSection(data: ReportData) {
     this.doc.addPage();
-    this.addHeader("Anexo: Desglose de Propiedad por Activo", "Detalle de copropiedad y proindivisos");
+    this.addHeader("ANEXO: Hoja de Ruta para Copropietarios", "Guía de gestión para bienes en proindiviso");
     
     let currentY = 50;
+    
+    this.doc.setFontSize(10);
+    this.doc.setTextColor(71, 85, 105);
+    const intro = "Este anexo detalla los bienes que han quedado en situación de proindiviso (propiedad compartida). A continuación se proponen pautas para su administración y posible liquidación futura.";
+    this.doc.text(this.doc.splitTextToSize(intro, 180), 15, currentY);
+    currentY += 15;
+
+    let hayProindivisos = false;
 
     data.inventario.forEach((activo) => {
-        // Encontrar todos los herederos que tienen este activo
         const participantes: any[] = [];
         const valorTotalOriginal = activo.sub_partidas.reduce((a, b) => a + (b.cantidad * b.valor_unitario), 0);
 
         data.reparto.lotes.forEach(lote => {
             const items = lote.activos.filter(a => a.nombre === activo.nombre && !a.virtual);
             if (items.length > 0) {
-                const valorAcumulado = items.reduce((sum, i) => sum + i.valor, 0);
                 const fraccionAcumulada = items.reduce((sum, i) => sum + i.fraccion, 0);
-                participantes.push([
-                    lote.nombreHeredero,
-                    `${(fraccionAcumulada * 100).toFixed(2)}%`,
-                    this.formatCurrency(valorAcumulado)
-                ]);
+                if (fraccionAcumulada > 0) {
+                    participantes.push({
+                        nombre: lote.nombreHeredero,
+                        porcentaje: `${(fraccionAcumulada * 100).toFixed(2)}%`,
+                        valor: this.formatCurrency(items.reduce((sum, i) => sum + i.valor, 0)),
+                        fraccion: fraccionAcumulada
+                    });
+                }
             }
         });
 
-        if (participantes.length > 0) {
-            // Check page break
-            if (currentY > 240) {
+        // Solo mostrar si hay más de un propietario o si el propietario único no tiene el 100% (caso raro pero posible)
+        if (participantes.length > 1) {
+            hayProindivisos = true;
+            if (currentY > 220) {
                 this.doc.addPage();
                 currentY = 20;
             }
 
+            this.doc.setFillColor(241, 245, 249);
+            this.doc.roundedRect(15, currentY, 180, 8, 1, 1, 'F');
             this.doc.setFontSize(11);
             this.doc.setTextColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
             this.doc.setFont('helvetica', 'bold');
-            this.doc.text(activo.nombre, 15, currentY);
+            this.doc.text(`BIEN COMPARTIDO: ${activo.nombre}`, 20, currentY + 5.5);
             
-            this.doc.setFontSize(9);
-            this.doc.setTextColor(100, 116, 139);
-            this.doc.setFont('helvetica', 'normal');
-            this.doc.text(`Valor de referencia: ${this.formatCurrency(valorTotalOriginal)}`, 140, currentY);
+            currentY += 12;
 
             autoTable(this.doc, {
-                startY: currentY + 4,
-                head: [['Partícipe / Copropietario', '% de Propiedad', 'Valor Adjudicado']],
-                body: participantes,
+                startY: currentY,
+                head: [['Copropietario', '% Participación', 'Valor Adjudicado']],
+                body: participantes.map(p => [p.nombre, p.porcentaje, p.valor]),
                 theme: 'grid',
                 headStyles: { fillColor: [71, 85, 105] },
                 styles: { fontSize: 9 },
                 margin: { left: 15, right: 15 }
             });
 
-            currentY = (this.doc as any).lastAutoTable.finalY + 12;
+            currentY = (this.doc as any).lastAutoTable.finalY + 8;
+            
+            // Hoja de ruta recomendada para este bien
+            this.doc.setFontSize(9);
+            this.doc.setFont('helvetica', 'bold');
+            this.doc.setTextColor(30, 41, 59);
+            this.doc.text("Hoja de Ruta de Liquidez:", 15, currentY);
+            currentY += 5;
+            
+            this.doc.setFont('helvetica', 'normal');
+            this.doc.setFontSize(8);
+            this.doc.setTextColor(100, 116, 139);
+            const pasos = [
+                "1. Pacto de administración: Acordar quién gestionará el mantenimiento y pago de IBI/Tasas.",
+                "2. Valoración de mercado: En caso de venta, encargar una tasación externa para evitar conflictos.",
+                "3. Derecho de adquisición preferente: Cualquier heredero puede comprar la parte de los demás.",
+                "4. Extinción de condominio: Si no hay acuerdo, se puede solicitar la división judicial o subasta."
+            ];
+            pasos.forEach(p => {
+                this.doc.text(p, 20, currentY);
+                currentY += 4;
+            });
+
+            currentY += 10;
         }
     });
 
-    if (data.inventario.length === 0) {
-        this.doc.text("No hay activos físicos registrados.", 15, currentY);
+    if (!hayProindivisos) {
+        this.doc.setFont('helvetica', 'italic');
+        this.doc.text("No se han detectado activos en situación de proindiviso significativo.", 15, currentY);
     }
   }
 }

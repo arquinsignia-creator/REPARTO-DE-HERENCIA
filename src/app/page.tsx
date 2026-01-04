@@ -111,7 +111,8 @@ export default function Page() {
       asignarA: [] as number[],
       sub_partidas: [
         { id: 'scash', concepto: "Efectivo y Bancos", cantidad: 1, unidad: "€", valor_unitario: 0 }
-      ]
+      ],
+      gastosEspeciales: 0
     },
     {
       id: '1',
@@ -123,7 +124,8 @@ export default function Page() {
         { id: 's1', concepto: "Barbecho", cantidad: 2000, unidad: "m2", valor_unitario: 5 },
         { id: 's2', concepto: "Cultivo Almendro", cantidad: 5000, unidad: "m2", valor_unitario: 12 },
         { id: 's3', concepto: "Casa de campo", cantidad: 200, unidad: "m2", valor_unitario: 400 }
-      ]
+      ],
+      gastosEspeciales: 0
     },
     {
       id: '2',
@@ -134,7 +136,8 @@ export default function Page() {
       sub_partidas: [
         { id: 's4', concepto: "Almendro Secano", cantidad: 400000, unidad: "m2", valor_unitario: 12 },
         { id: 's5', concepto: "Barbecho", cantidad: 100000, unidad: "m2", valor_unitario: 5 }
-      ]
+      ],
+      gastosEspeciales: 0
     },
     {
       id: '3',
@@ -144,7 +147,8 @@ export default function Page() {
       asignarA: [] as number[],
       sub_partidas: [
         { id: 's6', concepto: "Superficie", cantidad: 150, unidad: "m2", valor_unitario: 800 }
-      ]
+      ],
+      gastosEspeciales: 0
     }
   ]);
 
@@ -178,7 +182,10 @@ export default function Page() {
   const [fiscalConfig, setFiscalConfig] = useState({
     gananciales: false,
     usufructo: { enabled: false, edadViudo: 0 },
-    colacion: [] as { id: string; concepto: string; valor: number }[]
+    colacion: [] as { id: string; concepto: string; valor: number }[],
+    margenTolerancia: 1,
+    comunidadAutonoma: 'mad', // Madrid por defecto
+    porcentajeImpuestoEstimado: 1
   });
 
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
@@ -200,7 +207,8 @@ export default function Page() {
     return activos.map(a => ({
       ...a,
       asignarA: a.asignarA || [], // Asegurar que sea array
-      valorTotal: a.sub_partidas.reduce((acc, sub) => acc + (sub.cantidad * sub.valor_unitario), 0)
+      valorTotal: a.sub_partidas.reduce((acc, sub) => acc + (sub.cantidad * sub.valor_unitario), 0),
+      gastosEspeciales: a.gastosEspeciales || 0
     }));
   }, [activos]);
 
@@ -224,6 +232,38 @@ export default function Page() {
 
   const cuotaIdeal = useMemo(() => caudalRelicto / numHerederosEfectivos, [caudalRelicto, numHerederosEfectivos]);
 
+  const analisisLiquidez = useMemo(() => {
+    // 1. Gastos generales basados en el porcentaje de la CCAA
+    const gastosGenerales = caudalRelicto * (fiscalConfig.porcentajeImpuestoEstimado / 100);
+    
+    // 2. Gastos específicos por activo
+    const gastosActivos = activos.reduce((acc, a) => acc + (a.gastosEspeciales || 0), 0);
+    
+    // 3. Liquidez total necesaria
+    const totalGastosEstimados = gastosGenerales + gastosActivos;
+    
+    // 4. Caja disponible real (considerando que el 50% es del cónyuge si es ganancial)
+    const activoCash = totalActivos.find(a => a.id === 'cash');
+    const efectivoDisponibleTotal = activoCash ? (fiscalConfig.gananciales ? activoCash.valorTotal * 0.5 : activoCash.valorTotal) : 0;
+    
+    // 5. Balance
+    const balanceLiquidez = efectivoDisponibleTotal - totalGastosEstimados;
+    const tieneDiferenciaLiquidez = Math.abs(balanceLiquidez) > 0.01;
+    
+    // 6. Sobrante/Déficit por heredero
+    const balancePorHeredero = balanceLiquidez / (numHerederosEfectivos || 1);
+    
+    return {
+      gastosGenerales,
+      gastosActivos,
+      totalGastosEstimados,
+      efectivoDisponibleTotal,
+      balanceLiquidez,
+      tieneDiferenciaLiquidez,
+      balancePorHeredero
+    };
+  }, [caudalRelicto, fiscalConfig, activos, totalActivos, numHerederosEfectivos]);
+
   const valueAUsufructuar = useMemo(() => {
     if (!fiscalConfig.usufructo.enabled) return 0;
     const porc = Math.max(10, Math.min(70, 89 - fiscalConfig.usufructo.edadViudo));
@@ -242,167 +282,137 @@ export default function Page() {
   }, [totalActivos, fiscalConfig]);
 
   const reparto = useMemo(() => {
-    // 1. Inicializar lotes
-    let lotesBase = herederos.map(h => ({
-      id: h.id,
-      idHeredero: h.id,
-      nombreHeredero: h.nombre,
-      activos: [] as any[],
-      valorBienes: 0
-    }));
-
-    if (fiscalConfig.gananciales) {
-      lotesBase.push({
-        id: CONYUGE_ID,
-        idHeredero: CONYUGE_ID,
-        nombreHeredero: "Cónyuge Viudo/a",
+    // FUNCIÓN DE CÁLCULO DE ESCENARIO ÚNICO
+    const calcularEscenario = (activosOrdenados: any[]) => {
+      let lotes = herederos.map(h => ({
+        id: h.id,
+        idHeredero: h.id,
+        nombreHeredero: h.nombre,
         activos: [] as any[],
         valorBienes: 0
-      });
-    }
+      }));
 
-    let lotes = lotesBase;
-
-    // 1b. Si hay Gananciales, asignar el 50% de los bienes GANANCIALES al cónyuge primero
-    if (fiscalConfig.gananciales) {
-      const loteConyuge = lotes.find(l => l.idHeredero === CONYUGE_ID);
-      if (loteConyuge) {
-        totalActivos.forEach(activo => {
-          if (activo.esGanancial !== false) {
-            const valorGanancial = activo.valorTotal * 0.5;
-            loteConyuge.activos.push({
-              id: "gan_" + activo.id,
-              nombre: activo.nombre,
-              valor: valorGanancial,
-              fraccion: 0.5,
-              tipo: 'gananciales'
-            });
-            loteConyuge.valorBienes += valorGanancial;
-          }
+      if (fiscalConfig.gananciales) {
+        lotes.push({
+          id: CONYUGE_ID,
+          idHeredero: CONYUGE_ID,
+          nombreHeredero: "Cónyuge Viudo/a",
+          activos: [] as any[],
+          valorBienes: 0
         });
       }
-    }
 
-    // 2. Procesar asignaciones manuales (Simples y Múltiples)
-    const asignados = totalActivos.filter(a => (a as any).asignarA && (a as any).asignarA.length > 0);
-    asignados.forEach(activo => {
-      const pActivo = activo as any;
-      const numParticipantes = pActivo.asignarA.length;
-      
-      // La masa a repartir es el 50% si es ganancial, o el 100% si es privativo
-      const factorMasa = (fiscalConfig.gananciales && activo.esGanancial !== false) ? 0.5 : 1;
-      const valorPorHeredero = (activo.valorTotal * factorMasa) / numParticipantes;
-      
-      pActivo.asignarA.forEach((hId: number) => {
-        const lote = lotes.find(l => l.idHeredero === hId);
-        if (lote) {
-          lote.activos.push({ 
-            id: activo.id + "_" + hId, 
-            nombre: activo.nombre, 
-            valor: valorPorHeredero, 
-            fraccion: factorMasa / numParticipantes, 
-            manual: true,
-            tipo: 'herencia'
+      // 1. Gananciales (50% al cónyuge)
+      if (fiscalConfig.gananciales) {
+        const loteConyuge = lotes.find(l => l.idHeredero === CONYUGE_ID);
+        if (loteConyuge) {
+          activosOrdenados.forEach(activo => {
+            if (activo.esGanancial !== false) {
+              const valorGanancial = activo.valorTotal * 0.5;
+              loteConyuge.activos.push({
+                id: "gan_" + activo.id,
+                nombre: activo.nombre,
+                valor: valorGanancial,
+                fraccion: 0.5,
+                tipo: 'gananciales'
+              });
+              loteConyuge.valorBienes += valorGanancial;
+            }
           });
-          lote.valorBienes += valorPorHeredero;
-        }
-      });
-    });
-
-    // 2b. Integrar Donaciones como "Activos Virtuales" para equilibrar el lote
-    fiscalConfig.colacion.forEach((donacion: any) => {
-      if (donacion.herederoId) {
-        const lote = lotes.find(l => l.idHeredero === donacion.herederoId);
-        if (lote) {
-          lote.activos.push({
-            id: "don_" + donacion.id,
-            nombre: donacion.concepto,
-            valor: donacion.valor,
-            fraccion: 1,
-            virtual: true // Marca para UI
-          });
-          lote.valorBienes += donacion.valor;
         }
       }
-    });
 
-    // 2c. CONSOLIDACIÓN DE PROPIEDAD PARA EL CÓNYUGE
-    // Si hay Gananciales, priorizamos dar el otro 50% (herencia) al cónyuge 
-    // para que sea dueño del 100% del activo, hasta completar su cuota ideal.
-    if (fiscalConfig.gananciales) {
-      const loteConyuge = lotes.find(l => l.idHeredero === CONYUGE_ID);
-      if (loteConyuge) {
-        // Considerar activos sin asignar manualmente
-        const candidatos = totalActivos.filter(a => a.asignarA.length === 0).sort((a, b) => a.valorTotal - b.valorTotal);
+      // 2. Asignaciones Manuales
+      const asignados = activosOrdenados.filter(a => a.asignarA && a.asignarA.length > 0);
+      asignados.forEach(activo => {
+        const numParticipantes = activo.asignarA.length;
+        const factorMasa = (fiscalConfig.gananciales && activo.esGanancial !== false) ? 0.5 : 1;
+        const valorPorHeredero = (activo.valorTotal * factorMasa) / numParticipantes;
         
-        for (const activo of candidatos) {
-          if (activo.esGanancial === false) continue; // Si es privativo, no consolidamos (ya es 100% herencia)
-          
-          const totalPropiedad = loteConyuge.activos.filter(a => a.tipo === 'gananciales').reduce((s, a) => s + a.valor, 0);
-          const deficit = cuotaIdeal - (loteConyuge.valorBienes - totalPropiedad);
-          if (deficit <= 0.01) break;
+        activo.asignarA.forEach((hId: number) => {
+          const lote = lotes.find(l => l.idHeredero === hId);
+          if (lote) {
+            lote.activos.push({ 
+              id: activo.id + "_" + hId, 
+              nombre: activo.nombre, 
+              valor: valorPorHeredero, 
+              fraccion: factorMasa / numParticipantes, 
+              manual: true,
+              tipo: 'herencia'
+            });
+            lote.valorBienes += valorPorHeredero;
+          }
+        });
+      });
 
-          const valorHeredable = activo.valorTotal * 0.5;
-          const aAsignar = Math.min(deficit, valorHeredable);
+      // 3. Donaciones (Colación)
+      fiscalConfig.colacion.forEach((donacion: any) => {
+        if (donacion.herederoId) {
+          const lote = lotes.find(l => l.idHeredero === donacion.herederoId);
+          if (lote) {
+            lote.activos.push({
+              id: "don_" + donacion.id,
+              nombre: donacion.concepto,
+              valor: donacion.valor,
+              fraccion: 1,
+              virtual: true
+            });
+            lote.valorBienes += donacion.valor;
+          }
+        }
+      });
+
+      // 4. Consolidación Cónyuge (si hay déficit)
+      if (fiscalConfig.gananciales) {
+        const loteConyuge = lotes.find(l => l.idHeredero === CONYUGE_ID);
+        if (loteConyuge) {
+          const candidatosCol = activosOrdenados
+            .filter(a => a.asignarA.length === 0 && a.esGanancial !== false)
+            .sort((a, b) => a.valorTotal - b.valorTotal);
           
-          loteConyuge.activos.push({
-            id: activo.id + "_consol",
-            nombre: activo.nombre,
-            valor: aAsignar,
-            fraccion: aAsignar / activo.valorTotal,
-            tipo: 'herencia'
-          });
-          loteConyuge.valorBienes += aAsignar;
-          
-          // Si asignamos menos del total heredable (el 50%), marcamos la diferencia 
-          // para que se reparta en el siguiente paso. Si asignamos todo, lo quitamos de pendientes.
-          if (aAsignar >= valorHeredable - 0.01) {
-            (activo as any).yaConsolidado = true;
-          } else {
-            (activo as any).valorHeredableRestante = valorHeredable - aAsignar;
+          for (const activo of candidatosCol) {
+            const totalPropiedad = loteConyuge.activos.filter(a => a.tipo === 'gananciales').reduce((s, a) => s + a.valor, 0);
+            const deficit = cuotaIdeal - (loteConyuge.valorBienes - totalPropiedad);
+            if (deficit <= 0.01) break;
+
+            const valorHeredable = activo.valorTotal * 0.5;
+            const aAsignar = Math.min(deficit, valorHeredable);
+            
+            loteConyuge.activos.push({
+              id: activo.id + "_consol",
+              nombre: activo.nombre,
+              valor: aAsignar,
+              fraccion: aAsignar / activo.valorTotal,
+              tipo: 'herencia'
+            });
+            loteConyuge.valorBienes += aAsignar;
+            activo.yaConsolidado = (aAsignar >= valorHeredable - 0.01);
+            if (!activo.yaConsolidado) activo.valorHeredableRestante = valorHeredable - aAsignar;
           }
         }
       }
-    }
 
-    // 3. Repartir pendientes (automático)
-    // EXCLUIMOS "Caja / Dinero en Efectivo" para que actúe como buffer al final
-    
-    const pendientesFisicos = totalActivos.filter(a => 
-      a.id !== 'cash' &&
-      a.asignarA.length === 0 && 
-      !(a as any).yaConsolidado
-    ).sort((a, b) => b.valorTotal - a.valorTotal);
+      // 5. REPARTO AUTOMÁTICO DE ACTIVOS FÍSICOS (Greedy con Margen de Tolerancia)
+      const margenEuros = cuotaIdeal * (fiscalConfig.margenTolerancia / 100);
+      
+      const pendientes = activosOrdenados.filter(a => 
+        a.id !== 'cash' && a.asignarA.length === 0 && !a.yaConsolidado
+      );
 
-    pendientesFisicos.forEach(activo => {
-      const factorMasa = (fiscalConfig.gananciales && activo.esGanancial !== false) ? 0.5 : 1;
-      let valorHeredable = (activo as any).valorHeredableRestante !== undefined 
-        ? (activo as any).valorHeredableRestante 
-        : (activo.valorTotal * factorMasa);
+      pendientes.forEach(activo => {
+        const factorMasa = (fiscalConfig.gananciales && activo.esGanancial !== false) ? 0.5 : 1;
+        let valorHeredable = activo.valorHeredableRestante !== undefined ? activo.valorHeredableRestante : (activo.valorTotal * factorMasa);
 
-      if (valorHeredable <= 0.01) return;
+        if (valorHeredable <= 0.01) return;
 
-      // Intentar asignar el 100% a alguien que tenga "hueco" en su cuota ideal
-      const candidatosQueCaben = lotes
-        .filter(l => l.valorBienes + valorHeredable <= cuotaIdeal + 0.01)
-        .sort((a, b) => a.valorBienes - b.valorBienes);
+        // Regla: ¿Cabe en alguien con el margen de tolerancia?
+        const candidatos = lotes
+          .filter(l => l.valorBienes + valorHeredable <= cuotaIdeal + margenEuros + 0.01)
+          .sort((a, b) => a.valorBienes - b.valorBienes);
 
-      if (candidatosQueCaben.length > 0) {
-        // Cabe entero en al menos un heredero. Se lo damos al que menos tenga.
-        const lote = candidatosQueCaben[0];
-        lote.activos.push({ 
-          id: activo.id, 
-          nombre: activo.nombre, 
-          valor: valorHeredable, 
-          fraccion: valorHeredable / activo.valorTotal, 
-          tipo: 'herencia' 
-        });
-        lote.valorBienes += valorHeredable;
-      } else {
-        // No cabe entero en nadie sin superar su cuota ideal.
-        if (!activo.divisible) {
-          // Si es indivisible, se lo damos al que menos tenga aunque se pase.
-          const lote = [...lotes].sort((a, b) => a.valorBienes - b.valorBienes)[0];
+        if (candidatos.length > 0) {
+          // Se lo damos al que menos tenga de los que "caben"
+          const lote = candidatos[0];
           lote.activos.push({ 
             id: activo.id, 
             nombre: activo.nombre, 
@@ -412,165 +422,142 @@ export default function Page() {
           });
           lote.valorBienes += valorHeredable;
         } else {
-          // Si es divisible, repartimos entre los que tienen déficit para equilibrar.
-          let restante = valorHeredable;
-          while (restante > 0.01) {
-            const conDeficit = lotes.filter(l => l.valorBienes < cuotaIdeal - 0.01);
-            if (conDeficit.length === 0) {
-              // Nadie tiene déficit, repartir el resto a partes iguales
-              const aCadaUno = restante / lotes.length;
-              lotes.forEach(lote => {
-                lote.activos.push({ 
-                  id: `${activo.id}_sob_${lote.id}`, 
-                  nombre: activo.nombre, 
-                  valor: aCadaUno, 
-                  fraccion: aCadaUno / activo.valorTotal, 
-                  tipo: 'herencia' 
+          // Si es indivisible, forzar adjudicación al que menos tenga para evitar proindiviso
+          if (!activo.divisible) {
+            const lote = [...lotes].sort((a, b) => a.valorBienes - b.valorBienes)[0];
+            lote.activos.push({ id: activo.id, nombre: activo.nombre, valor: valorHeredable, fraccion: valorHeredable / activo.valorTotal, tipo: 'herencia' });
+            lote.valorBienes += valorHeredable;
+          } else {
+            // Si es divisible y no cabe en nadie, repartir entre los que tienen déficit
+            let restante = valorHeredable;
+            while (restante > 0.01) {
+              const conDeficit = lotes.filter(l => l.valorBienes < cuotaIdeal - 0.01);
+              if (conDeficit.length === 0) {
+                const aCadaUno = restante / lotes.length;
+                lotes.forEach(l => {
+                  l.activos.push({ id: `${activo.id}_sob_${l.id}`, nombre: activo.nombre, valor: aCadaUno, fraccion: aCadaUno / activo.valorTotal, tipo: 'herencia' });
+                  l.valorBienes += aCadaUno;
                 });
-                lote.valorBienes += aCadaUno;
-              });
-              restante = 0;
-            } else {
-              // Repartir proporcionalmente al déficit
-              const deficitTotal = conDeficit.reduce((acc, l) => acc + (cuotaIdeal - l.valorBienes), 0);
-              const aRepartirAhora = Math.min(restante, deficitTotal);
-              conDeficit.forEach(lote => {
-                const miDeficit = cuotaIdeal - lote.valorBienes;
-                const miParte = (miDeficit / deficitTotal) * aRepartirAhora;
-                if (miParte > 0.01) {
-                  lote.activos.push({ 
-                    id: `${activo.id}_bal_${lote.id}`, 
-                    nombre: activo.nombre, 
-                    valor: miParte, 
-                    fraccion: miParte / activo.valorTotal, 
-                    tipo: 'herencia' 
-                  });
-                  lote.valorBienes += miParte;
-                }
-              });
-              restante -= aRepartirAhora;
+                restante = 0;
+              } else {
+                const deficitTotal = conDeficit.reduce((acc, l) => acc + (cuotaIdeal - l.valorBienes), 0);
+                const aRepartirAhora = Math.min(restante, deficitTotal);
+                conDeficit.forEach(l => {
+                  const miParte = ((cuotaIdeal - l.valorBienes) / deficitTotal) * aRepartirAhora;
+                  if (miParte > 0.01) {
+                    l.activos.push({ id: `${activo.id}_bal_${l.id}`, nombre: activo.nombre, valor: miParte, fraccion: miParte / activo.valorTotal, tipo: 'herencia' });
+                    l.valorBienes += miParte;
+                  }
+                });
+                restante -= aRepartirAhora;
+              }
             }
           }
         }
-      }
-    });
-
-    // 4. Reparto de "Caja / Dinero en Efectivo" como buffer de equilibrio
-    const activoCash = totalActivos.find(a => a.id === 'cash');
-    if (activoCash && activoCash.asignarA.length === 0 && !(activoCash as any).yaConsolidado) {
-      const factorMasa = (fiscalConfig.gananciales && activoCash.esGanancial !== false) ? 0.5 : 1;
-      let cashRestante = activoCash.valorTotal * factorMasa;
-
-      // Primero: Intentar llenar los déficits de los herederos
-      const conDeficit = lotes.filter(l => l.valorBienes < cuotaIdeal - 0.01)
-                             .sort((a, b) => b.valorBienes - a.valorBienes); // Empezar por los que casi llegan o proporcional? Mejor proporcional.
-      
-      if (conDeficit.length > 0 && cashRestante > 0) {
-        const deficitTotal = conDeficit.reduce((acc, l) => acc + (cuotaIdeal - l.valorBienes), 0);
-        const aRepartir = Math.min(cashRestante, deficitTotal);
-        
-        conDeficit.forEach(lote => {
-          const miDeficit = cuotaIdeal - lote.valorBienes;
-          const miParte = (miDeficit / deficitTotal) * aRepartir;
-          if (miParte > 0.01) {
-            lote.activos.push({ 
-              id: `cash_${lote.id}`, 
-              nombre: activoCash.nombre, 
-              valor: miParte, 
-              fraccion: miParte / activoCash.valorTotal, 
-              tipo: 'herencia' 
-            });
-            lote.valorBienes += miParte;
-          }
-        });
-        cashRestante -= aRepartir;
-      }
-
-      // Segundo: Si aún sobra cash (raro si hay deudas, pero posible), repartir a partes iguales entre todos
-      if (cashRestante > 0.01) {
-        const aCadaUno = cashRestante / lotes.length;
-        lotes.forEach(lote => {
-          lote.activos.push({ 
-            id: `cash_extra_${lote.id}`, 
-            nombre: activoCash.nombre, 
-            valor: aCadaUno, 
-            fraccion: aCadaUno / activoCash.valorTotal, 
-            tipo: 'herencia' 
-          });
-          lote.valorBienes += aCadaUno;
-        });
-      }
-    } else if (activoCash && activoCash.asignarA.length > 0) {
-       // Si fue asignado manualmente, ya se procesó en el paso 2
-    }
-
-    // 5. UNIFICACIÓN DE ACTIVOS (Evitar filas duplicadas del mismo bien)
-    lotes.forEach(lote => {
-      const unificados: any[] = [];
-      lote.activos.forEach(act => {
-        const existente = unificados.find(u => u.nombre === act.nombre && u.tipo === act.tipo);
-        if (existente && !act.virtual) {
-          existente.valor += act.valor;
-          existente.fraccion += act.fraccion;
-          if (act.manual) existente.manual = true;
-        } else {
-          unificados.push({ ...act });
-        }
       });
-      lote.activos = unificados;
-    });
 
-    // 6. AJUSTE DE COMPENSACIONES FÍSICAS (Especial Gananciales)
-    // Tras el reparto, si algún heredero tiene exceso y el cónyuge defecto,
-    // transferimos valor de sus bienes de herencia al cónyuge.
-    if (fiscalConfig.gananciales) {
-      const loteConyuge = lotes.find(l => l.idHeredero === CONYUGE_ID);
-      if (loteConyuge) {
-        lotes.forEach(lote => {
-          if (lote.idHeredero === CONYUGE_ID) return;
-          
-          let diferencia = lote.valorBienes - cuotaIdeal;
-          if (diferencia > 0.01) {
-             // Buscar un activo divisible de herencia para transferir
-             const activosHerencia = lote.activos.filter(a => a.tipo === 'herencia' && !a.virtual);
-             for (const act of activosHerencia) {
-                if (diferencia <= 0) break;
-                const aTransferir = Math.min(diferencia, act.valor - 0.01);
-                if (aTransferir <= 0) continue;
-                
-                // Mermar del heredero
-                act.valor -= aTransferir;
-                const totalOriginal = totalActivos.find(ta => ta.nombre === act.nombre)?.valorTotal || 1;
-                act.fraccion -= aTransferir / totalOriginal;
-                lote.valorBienes -= aTransferir;
-                
-                // Añadir al cónyuge
-                const existenteConyuge = loteConyuge.activos.find(a => a.nombre === act.nombre && a.tipo === 'herencia');
-                if (existenteConyuge) {
-                  existenteConyuge.valor += aTransferir;
-                  existenteConyuge.fraccion += aTransferir / totalOriginal;
-                } else {
-                  loteConyuge.activos.push({
-                    id: "trans_" + act.id,
-                    nombre: act.nombre,
-                    valor: aTransferir,
-                    fraccion: aTransferir / totalOriginal,
-                    tipo: 'herencia'
-                  });
-                }
-                loteConyuge.valorBienes += aTransferir;
-                diferencia -= aTransferir;
-             }
+      // 6. BUFFER DE CAJA
+      const activoCash = totalActivos.find(a => a.id === 'cash');
+      if (activoCash && activoCash.asignarA.length === 0) {
+        const factorMasa = (fiscalConfig.gananciales && activoCash.esGanancial !== false) ? 0.5 : 1;
+        let cashRestante = activoCash.valorTotal * factorMasa;
+        const conDeficit = lotes.filter(l => l.valorBienes < cuotaIdeal - 0.01);
+        
+        if (conDeficit.length > 0 && cashRestante > 0) {
+          const deficitTotal = conDeficit.reduce((acc, l) => acc + (cuotaIdeal - l.valorBienes), 0);
+          const aRepartir = Math.min(cashRestante, deficitTotal);
+          conDeficit.forEach(lote => {
+            const miParte = ((cuotaIdeal - lote.valorBienes) / deficitTotal) * aRepartir;
+            if (miParte > 0.01) {
+              lote.activos.push({ id: `cash_${lote.id}`, nombre: activoCash.nombre, valor: miParte, fraccion: miParte / activoCash.valorTotal, tipo: 'herencia' });
+              lote.valorBienes += miParte;
+            }
+          });
+          cashRestante -= aRepartir;
+        }
+        if (cashRestante > 0.01) {
+          const aCadaUno = cashRestante / lotes.length;
+          lotes.forEach(l => {
+            l.activos.push({ id: `cash_extra_${l.id}`, nombre: activoCash.nombre, valor: aCadaUno, fraccion: aCadaUno / activoCash.valorTotal, tipo: 'herencia' });
+            l.valorBienes += aCadaUno;
+          });
+        }
+      }
+
+      // 7. Unificación de Activos
+      lotes.forEach(lote => {
+        const unificados: any[] = [];
+        lote.activos.forEach(act => {
+          const existente = unificados.find(u => u.nombre === act.nombre && u.tipo === act.tipo);
+          if (existente && !act.virtual) {
+            existente.valor += act.valor;
+            existente.fraccion += act.fraccion;
+            if (act.manual) existente.manual = true;
+          } else {
+            unificados.push({ ...act });
           }
         });
+        lote.activos = unificados;
+      });
+
+      return lotes;
+    };
+
+    // FUNCIÓN DE PUNTUACIÓN (SCORING)
+    const calcularCosteSolucion = (lotes: any[]) => {
+      let coste = 0;
+      const nombresActivos = new Set(totalActivos.map(a => a.nombre));
+
+      nombresActivos.forEach(nombre => {
+        const comparticiones = lotes.filter(l => l.activos.some((a: any) => a.nombre === nombre && a.tipo === 'herencia')).length;
+        if (comparticiones > 1) coste += comparticiones * 10; // Penalizar proindivisos
+      });
+
+      lotes.forEach(lote => {
+        const valorGananciales = lote.activos.filter((a: any) => a.tipo === 'gananciales').reduce((sum: number, a: any) => sum + a.valor, 0);
+        const totalHerencia = lote.valorBienes - valorGananciales;
+        const desviacion = Math.abs(cuotaIdeal - totalHerencia);
+        coste += desviacion * 0.1; // Cada euro de desviación suma coste
+        if (desviacion > 1) coste += 5; // Penalización fija por necesitar compensación sustancial
+      });
+
+      return coste;
+    };
+
+    // GENERAR MÚLTIPLES ESCENARIOS Y ELEGIR EL MEJOR
+    let mejorEscenario: any[] = [];
+    let menorCoste = Infinity;
+
+    // Escenario 1: Orden por valor descendente (original)
+    const ordenDesc = [...totalActivos].sort((a, b) => b.valorTotal - a.valorTotal);
+    const sol1 = calcularEscenario(ordenDesc.map(a => ({ ...a })));
+    const coste1 = calcularCosteSolucion(sol1);
+    mejorEscenario = sol1;
+    menorCoste = coste1;
+
+    // Esceneario 2: Orden por valor ascendente
+    const ordenAsc = [...totalActivos].sort((a, b) => a.valorTotal - b.valorTotal);
+    const sol2 = calcularEscenario(ordenAsc.map(a => ({ ...a })));
+    const coste2 = calcularCosteSolucion(sol2);
+    if (coste2 < menorCoste) { mejorEscenario = sol2; menorCoste = coste2; }
+
+    // Otros Escenarios (Barajados aleatorios si hay complejidad)
+    if (totalActivos.length > 3) {
+      for (let i = 0; i < 8; i++) {
+        const ordenAzar = [...totalActivos].sort(() => Math.random() - 0.5);
+        const sol = calcularEscenario(ordenAzar.map(a => ({ ...a })));
+        const coste = calcularCosteSolucion(sol);
+        if (coste < menorCoste) {
+          mejorEscenario = sol;
+          menorCoste = coste;
+        }
       }
     }
 
-    // 7. Calcular compensaciones finales
-    const compensaciones = lotes.map(lote => {
-      const valorGananciales = lote.activos.filter(a => a.tipo === 'gananciales').reduce((sum, a) => sum + a.valor, 0);
+    // 8. Calcular compensaciones finales del mejor escenario
+    const compensaciones = mejorEscenario.map(lote => {
+      const valorGananciales = lote.activos.filter((a: any) => a.tipo === 'gananciales').reduce((sum: number, a: any) => sum + a.valor, 0);
       const totalHerenciaRecibida = lote.valorBienes - valorGananciales;
-      
       return {
         idHeredero: lote.idHeredero,
         heredero: lote.idHeredero,
@@ -579,7 +566,7 @@ export default function Page() {
       };
     });
 
-    return { lotes: lotes.sort((a, b) => a.idHeredero - b.idHeredero), compensaciones };
+    return { lotes: mejorEscenario.sort((a, b) => a.idHeredero - b.idHeredero), compensaciones };
   }, [totalActivos, herederos, cuotaIdeal, fiscalConfig]);
 
   /* 
@@ -598,9 +585,30 @@ export default function Page() {
       divisible: true, 
       esGanancial: true,
       asignarA: [], 
-      sub_partidas: [{ id: Date.now().toString(), concepto: "Concepto inicial", cantidad: 1, unidad: "ud", valor_unitario: 0 }] 
+      sub_partidas: [{ id: Date.now().toString(), concepto: "Concepto inicial", cantidad: 1, unidad: "ud", valor_unitario: 0 }],
+      gastosEspeciales: 0
     }]);
     setExpandedAssets(prev => [...prev, nextId]);
+  };
+
+  const agregarSubpartida = (activoId: string) => {
+    setActivos(prev => prev.map(a => {
+      if (a.id !== activoId) return a;
+      const isFixed = (a as any).isFixed;
+      return {
+        ...a,
+        sub_partidas: [
+          ...a.sub_partidas,
+          { 
+            id: Date.now().toString(), 
+            concepto: isFixed ? "Nueva entrada de efectivo" : "Nuevo componente", 
+            cantidad: 1, 
+            unidad: isFixed ? "global" : "ud", 
+            valor_unitario: 0 
+          }
+        ]
+      };
+    }));
   };
 
   const agregarHeredero = () => {
@@ -763,30 +771,31 @@ export default function Page() {
       // Generar PDF con enlace directo
       const currentUrl = window.location.origin;
       const generator = new PdfGenerator(moneda);
-      generator.generate({
-        config: {
-          numHerederos,
-          moneda,
-          fecha: new Date().toLocaleDateString('es-ES'),
-          sessionCode: savedCode || sessionCode || "PENDIENTE",
-          sessionUrl: savedCode ? `${currentUrl}/?code=${savedCode}` : undefined,
-          hasPassword: password !== null || isSessionProtected
-        },
-        metricas: {
-          caudalRelicto,
-          cuotaIdeal
-        },
-        inventario: activos,
-        reparto: reparto,
-        textoExplicativo: resumen,
-        fiscal: {
-          ...fiscalConfig,
-          usufructo: {
-            ...fiscalConfig.usufructo,
-            valor: valueAUsufructuar
+        generator.generate({
+          config: {
+            numHerederos,
+            moneda,
+            fecha: new Date().toLocaleDateString('es-ES'),
+            sessionCode: savedCode || sessionCode || "PENDIENTE",
+            sessionUrl: savedCode ? `${currentUrl}/?code=${savedCode}` : undefined,
+            hasPassword: password !== null || isSessionProtected
+          },
+          metricas: {
+            caudalRelicto,
+            cuotaIdeal
+          },
+          liquidez: analisisLiquidez,
+          inventario: totalActivos,
+          reparto: reparto,
+          textoExplicativo: resumen,
+          fiscal: {
+            ...fiscalConfig,
+            usufructo: {
+              ...fiscalConfig.usufructo,
+              valor: valueAUsufructuar
+            }
           }
-        }
-      });
+        });
 
       setIsAnalizando(false);
       setPendingPassword(null);
@@ -1134,17 +1143,8 @@ export default function Page() {
                             placeholder="Nombre del activo..."
                           />
                         </div>
-                        {!isFixed && (
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              eliminarActivo(activo.id);
-                            }} 
-                            className="md:hidden text-slate-300 hover:text-red-500 transition-colors p-1"
-                          >
-                            <Trash2 className="w-5 h-5" />
-                          </button>
-                        )}
+                          {/* Espacio reservado para futuros controles */}
+
                       </div>
                       
                       <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
@@ -1246,12 +1246,11 @@ export default function Page() {
                         </div>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-4" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex flex-col items-end">
+                    <div className="flex items-center gap-6" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex flex-col items-end min-w-[120px]">
                         <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Valor total</span>
-                        <span className="text-lg font-black text-indigo-600">
-                          {formatCurrency(activo.sub_partidas.reduce((acc, sub) => acc + (sub.cantidad * sub.valor_unitario), 0))}
+                        <span className="text-lg md:text-xl font-black text-indigo-600">
+                          {formatCurrency(activo.sub_partidas.reduce((acc: number, sub: any) => acc + (sub.cantidad * sub.valor_unitario), 0))}
                         </span>
                       </div>
                       {!isFixed && (
@@ -1260,7 +1259,7 @@ export default function Page() {
                             e.stopPropagation();
                             eliminarActivo(activo.id);
                           }}
-                          className="hidden md:flex items-center justify-center w-10 h-10 rounded-xl bg-rose-50 text-rose-500 hover:bg-rose-100 transition-colors shadow-sm"
+                          className="flex items-center justify-center w-10 h-10 rounded-xl bg-rose-50 text-rose-500 hover:bg-rose-100 transition-colors shadow-sm shrink-0"
                         >
                           <Trash2 className="w-5 h-5" />
                         </button>
@@ -1375,16 +1374,7 @@ export default function Page() {
                       </div>
 
                       <button 
-                        onClick={() => {
-                          const id = Date.now().toString();
-                          setActivos(activos.map(a => {
-                            if (a.id !== activo.id) return a;
-                            return {
-                              ...a,
-                              sub_partidas: [...a.sub_partidas, { id, concepto: isFixed ? "Nueva entrada de efectivo" : "Nuevo concepto", cantidad: 1, unidad: isFixed ? "global" : "ud", valor_unitario: 0 }]
-                            };
-                          }));
-                        }}
+                        onClick={() => agregarSubpartida(activo.id)}
                         className="w-full py-3 border-2 border-dashed border-slate-100 rounded-xl text-slate-400 text-sm font-bold hover:bg-slate-50 hover:border-indigo-100 hover:text-indigo-400 transition-all flex items-center justify-center gap-2 group"
                       >
                         <div className="bg-slate-100 p-1 rounded-lg group-hover:bg-indigo-100 transition-colors">
@@ -1392,6 +1382,40 @@ export default function Page() {
                         </div>
                         {isFixed ? "Añadir partida de efectivo" : "Añadir sub-partida / concepto"}
                       </button>
+
+                      {/* SECCIÓN DE GASTOS ESPECIALES / IMPUESTOS PARTICULARES */}
+                      <div className="mt-8 pt-6 border-t border-slate-100">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between bg-indigo-50/30 p-4 md:p-5 rounded-2xl border border-indigo-100/50 gap-4">
+                          <div className="flex items-center gap-4">
+                            <div className="p-3 bg-white rounded-xl shadow-sm border border-indigo-100">
+                              <Scale className="w-5 h-5 text-indigo-600" />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                Gasto o Impuesto Particular de Adjudicación
+                                <div className="tooltip-container">
+                                  <HelpCircle className="w-3.5 h-3.5 text-slate-400 cursor-help" />
+                                  <span className="tooltip-text">Utilice este campo si el activo tiene un impuesto específico (ej. Plusvalía Municipal o I. Sucesiones diferente por estar en otra CCAA).</span>
+                                </div>
+                              </h4>
+                              <p className="text-[11px] text-slate-500">Introduzca el valor total estimado de gastos para este bien específico.</p>
+                            </div>
+                          </div>
+                           <div className="flex items-center gap-3 self-end md:self-center">
+                            <div className="relative">
+                              <FormattedNumberInput 
+                                value={activo.gastosEspeciales || 0}
+                                onChange={(val) => {
+                                  setActivos(activos.map(a => a.id === activo.id ? { ...a, gastosEspeciales: val } : a));
+                                }}
+                                className="w-40 bg-white border border-slate-200 rounded-xl pl-4 pr-10 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none text-right font-black text-indigo-600 shadow-sm"
+                                placeholder="0,00"
+                              />
+                              <span className="absolute right-4 top-[11px] text-indigo-300 font-bold text-xs pointer-events-none">€</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1450,6 +1474,55 @@ export default function Page() {
             </div>
           </div>
 
+          {/* New Liquidity Estimation Card */}
+          <div className="bg-white rounded-2xl border border-indigo-100 shadow-lg shadow-indigo-50/50 p-6 animate-fade-in">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                <Coins className="w-5 h-5 text-amber-500" /> Estimación de Liquidez
+              </h3>
+              <div className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest uppercase ${analisisLiquidez.balanceLiquidez >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                {analisisLiquidez.balanceLiquidez >= 0 ? 'Superávit' : 'Déficit'}
+              </div>
+            </div>
+
+             <div className="space-y-4">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-500 font-medium">Caja / Efectivo en Herencia</span>
+                <span className="font-bold text-emerald-600">{formatCurrency(analisisLiquidez.efectivoDisponibleTotal)}</span>
+              </div>
+              
+              <div className="flex justify-between items-center text-sm pt-2 border-t border-slate-50">
+                <span className="text-slate-500">Gastos Estimados (CCAA {fiscalConfig.comunidadAutonoma?.toUpperCase()})</span>
+                <span className="font-bold text-slate-700">{formatCurrency(analisisLiquidez.gastosGenerales)}</span>
+              </div>
+              {analisisLiquidez.gastosActivos > 0 && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-500">Impuestos Específicos Bienes</span>
+                  <span className="font-bold text-slate-700">{formatCurrency(analisisLiquidez.gastosActivos)}</span>
+                </div>
+              )}
+              
+              <div className="flex justify-between items-center text-sm pt-2 border-t border-slate-100">
+                <span className="font-bold text-slate-800">Total Necesario para Adjudicación</span>
+                <span className="font-bold text-rose-500">{formatCurrency(analisisLiquidez.totalGastosEstimados)}</span>
+              </div>
+              
+              <div className={`mt-6 p-4 rounded-xl border-2 flex flex-col items-center gap-1 ${analisisLiquidez.balanceLiquidez >= 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'}`}>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  {analisisLiquidez.balanceLiquidez >= 0 ? 'Sobrante por cada Heredero' : 'Aportación por cada Heredero'}
+                </span>
+                <div className={`text-2xl font-black ${analisisLiquidez.balanceLiquidez >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {formatCurrency(Math.abs(analisisLiquidez.balancePorHeredero))}
+                </div>
+                <p className="text-[9px] text-center text-slate-400 mt-2 px-2 leading-tight">
+                  {analisisLiquidez.balanceLiquidez >= 0 
+                   ? "* El sobrante de efectivo se reparte equitativamente entre los adjudicatarios." 
+                   : "* El efectivo disponible no cubre los gastos previstos. Cada heredero deberá aportar la diferencia."}
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* AI Justification */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
             <div className="flex items-center justify-between mb-6">
@@ -1504,8 +1577,8 @@ export default function Page() {
                 
                 return lotesOrdenados.map((lote) => {
                   const esConyuge = lote.idHeredero === CONYUGE_ID;
-                  const activosGananciales = lote.activos.filter(a => a.tipo === 'gananciales');
-                  const activosHerencia = lote.activos.filter(a => a.tipo !== 'gananciales');
+                  const activosGananciales = lote.activos.filter((a: any) => a.tipo === 'gananciales');
+                  const activosHerencia = lote.activos.filter((a: any) => a.tipo !== 'gananciales');
                   
                   return (
                     <div key={lote.id} className={`bg-white rounded-xl border p-5 shadow-sm transition-all ${esConyuge ? 'border-indigo-400 bg-indigo-50/10 ring-1 ring-indigo-400/20' : 'border-slate-200'}`}>
@@ -1528,7 +1601,7 @@ export default function Page() {
                         {activosGananciales.length > 0 && (
                           <div className="space-y-2">
                             <h4 className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest pl-1">Propiedad (Gananciales)</h4>
-                            {activosGananciales.map((act) => (
+                            {activosGananciales.map((act: any) => (
                               <div key={act.id} className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-indigo-100 group">
                                 <div className="flex flex-col">
                                   <span className="text-sm font-medium text-slate-700">{act.nombre}</span>
@@ -1543,7 +1616,7 @@ export default function Page() {
                         <div className="space-y-2">
                           {activosGananciales.length > 0 && <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Adjudicación (Herencia)</h4>}
                           {activosHerencia.length === 0 && !activosGananciales.length && <p className="text-xs text-slate-400 italic text-center py-2">Sin bienes asignados</p>}
-                          {activosHerencia.map((act) => (
+                          {activosHerencia.filter((a: any) => a.id !== 'cash').map((act: any) => (
                             <div key={act.id} className="flex justify-between items-center bg-slate-50/50 p-2.5 rounded-lg border border-slate-100 hover:bg-indigo-50/30 transition-colors group">
                               <div className="flex flex-col">
                                 <div className="flex items-center gap-2">
@@ -1555,15 +1628,32 @@ export default function Page() {
                                   )}
                                   {act.virtual && <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-bold">Donación en vida</span>}
                                 </div>
-                                <span className="percentage-badge w-fit mt-1">
-                                  {((act.valor / (totalActivos.reduce((a, b) => a + b.valorTotal, 0) * (fiscalConfig.gananciales ? 0.5 : 1) || 1)) * 100).toFixed(1)}% de la herencia física
-                                </span>
+                                  <span className="percentage-badge w-fit mt-1">
+                                    {((act.valor / (totalActivos.find(a => a.nombre === act.nombre)?.valorTotal || 1)) * 100).toFixed(1)}% de la propiedad del bien
+                                  </span>
                               </div>
                               <span className="text-sm font-bold text-slate-600 group-hover:text-indigo-700 transition-colors">
                                 {formatCurrency(act.valor)}
                               </span>
                             </div>
                           ))}
+
+                          {/* Renderizar Balance de Liquidez en lugar de Activo Caja */}
+                          {activosHerencia.some((a: any) => a.id === 'cash') && (
+                            <div className={`flex justify-between items-center p-2.5 rounded-lg border transition-colors group ${analisisLiquidez.balancePorHeredero >= 0 ? 'bg-emerald-50/50 border-emerald-100' : 'bg-rose-50/50 border-rose-100'}`}>
+                              <div className="flex flex-col">
+                                <span className={`text-sm font-bold ${analisisLiquidez.balancePorHeredero >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                  {analisisLiquidez.balancePorHeredero >= 0 ? 'Sobrante de Liquidez' : 'Aportación para Impuestos'}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-bold mt-0.5">
+                                  {analisisLiquidez.balancePorHeredero >= 0 ? '(Tras pago de gastos)' : '(Déficit a cubrir)'}
+                                </span>
+                              </div>
+                              <span className={`text-sm font-black ${analisisLiquidez.balancePorHeredero >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                {formatCurrency(Math.abs(analisisLiquidez.balancePorHeredero))}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                       

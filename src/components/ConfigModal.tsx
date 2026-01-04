@@ -11,6 +11,9 @@ interface Config {
     valor?: number; // % calculado
   };
   colacion: { id: string; concepto: string; valor: number; herederoId?: number }[];
+  margenTolerancia: number;
+  comunidadAutonoma: string;
+  porcentajeImpuestoEstimado: number;
 }
 
 interface ConfigModalProps {
@@ -64,7 +67,67 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, confi
         {/* Content */}
         <div className="p-8 max-h-[70vh] overflow-y-auto overflow-x-visible space-y-8">
           
-          {/* Gananciales */}
+          {/* CCAA e Impuestos */}
+          <section className="space-y-4">
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-slate-800 uppercase text-xs tracking-widest text-indigo-500">Estimación de Gastos de Adjudicación</h3>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4 bg-indigo-50/30 p-4 rounded-xl border border-indigo-100/50">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">CCAA Residencia Fallecido</label>
+                <select 
+                  value={localConfig.comunidadAutonoma || ""}
+                  onChange={(e) => {
+                    const ccaa = e.target.value;
+                    let pct = 10; // Default
+                    if (ccaa === 'mad' || ccaa === 'and' || ccaa === 'mur' || ccaa === 'val') pct = 1;
+                    if (ccaa === 'cyl' || ccaa === 'gal') pct = 5;
+                    if (ccaa === 'cat') pct = 7;
+                    setLocalConfig({...localConfig, comunidadAutonoma: ccaa, porcentajeImpuestoEstimado: pct});
+                  }}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500 outline-none"
+                >
+                  <option value="">Seleccionar CCAA...</option>
+                  <option value="mad">Madrid (1%)</option>
+                  <option value="and">Andalucía (1%)</option>
+                  <option value="val">C. Valenciana (1%)</option>
+                  <option value="mur">Murcia (1%)</option>
+                  <option value="cyl">Castilla y León (5%)</option>
+                  <option value="gal">Galicia (5%)</option>
+                  <option value="cat">Cataluña (7%)</option>
+                  <option value="ext">Extremadura (10%)</option>
+                  <option value="ara">Aragón (10%)</option>
+                  <option value="can">Canarias (10%)</option>
+                  <option value="bal">Baleares (10%)</option>
+                  <option value="ast">Asturias (10%)</option>
+                  <option value="nav">Navarra (10%)</option>
+                  <option value="pv">País Vasco (10%)</option>
+                  <option value="clm">Castilla-La Mancha (10%)</option>
+                  <option value="rio">La Rioja (10%)</option>
+                  <option value="cant">Cantabria (10%)</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">% Gastos Estimado (Impuestos + Minutas)</label>
+                <div className="relative">
+                  <input 
+                    type="number" 
+                    step="0.1"
+                    value={localConfig.porcentajeImpuestoEstimado || 0}
+                    onChange={(e) => setLocalConfig({...localConfig, porcentajeImpuestoEstimado: parseFloat(e.target.value) || 0})}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500 outline-none pr-8 font-bold text-slate-700"
+                  />
+                  <span className="absolute right-3 top-2 text-slate-400 text-sm">%</span>
+                </div>
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-400 italic">
+              * Este porcentaje se aplica sobre el Caudal Relicto total para estimar la liquidez necesaria. Incluye Impuesto de Sucesiones, AJD, Notaría y Registro.
+            </p>
+          </section>
+
+          <hr className="border-slate-100" />
           <section className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -213,6 +276,41 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, confi
             </div>
           </section>
 
+          {/* Margen de Tolerancia */}
+          <section className="space-y-4">
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-slate-800">Margen de Tolerancia de Reparto</h3>
+              <div className="tooltip-container">
+                <HelpCircle className="w-4 h-4 text-slate-400 cursor-help" />
+                <span className="tooltip-text">
+                  Permite al sistema asignar un activo completo a un heredero aunque supere ligeramente su cuota ideal (dentro de este %), evitando proindivisos innecesarios.
+                </span>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-4 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+              <div className="flex-1">
+                <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Porcentaje de Margen (%)</label>
+                <div className="relative">
+                  <input 
+                    type="number" 
+                    step="0.5"
+                    min="0"
+                    max="10"
+                    value={localConfig.margenTolerancia}
+                    onChange={(e) => setLocalConfig({...localConfig, margenTolerancia: parseFloat(e.target.value) || 0})}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none pr-8 font-bold text-indigo-600"
+                  />
+                  <span className="absolute right-3 top-2 text-slate-400 text-sm">%</span>
+                </div>
+              </div>
+              <p className="flex-[2] text-xs text-slate-500 leading-relaxed italic">
+                Un margen del 1-2% es ideal para evitar que activos indivisibles se fragmenten por pequeñas diferencias económicas que se pueden compensar en metálico.
+              </p>
+            </div>
+          </section>
+
+          <hr className="border-slate-100" />
         </div>
 
         {/* Footer */}
