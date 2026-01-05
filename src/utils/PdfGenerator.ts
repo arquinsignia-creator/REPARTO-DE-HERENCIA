@@ -378,12 +378,25 @@ export class PdfGenerator {
     this.addSectionTitle("4. Memoria Explicativa", currentY);
     currentY += 10;
     
+    // Reset font styles to ensure clean text
+    this.doc.setFont('helvetica', 'normal');
+    this.doc.setFontSize(10);
+    this.doc.setTextColor(30, 41, 59); // slate-800
+
     const splitText = this.doc.splitTextToSize(data.textoExplicativo, 180);
     this.doc.text(splitText, 15, currentY);
+    
+    // Calcular la altura real del texto añadido para actualizar currentY
+    // aprox 5 puntos por línea en tamaño 10 (con interlineado estándar de jsPDF)
+    const textHeight = splitText.length * 5; 
+    currentY += textHeight + 10; // +10 de margen extra
 
     // NUEVO APARTADO: LIQUIDEZ Y GASTOS
     if (data.liquidez) {
-        currentY = (this.doc as any).lastAutoTable?.finalY + 20 || currentY + 40;
+        // Ya no usamos lastAutoTable.finalY porque venimos de una sección de texto (seccion 4)
+        // Usamos el currentY calculado acumulativamente
+        currentY += 10;
+
         if (currentY > 230) {
             this.doc.addPage();
             currentY = 20;
