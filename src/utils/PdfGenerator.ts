@@ -28,6 +28,7 @@ interface LoteItem {
 
 interface Lote {
   id: number;
+  idHeredero?: number;
   nombreHeredero: string;
   activos: LoteItem[];
   valorBienes: number;
@@ -47,6 +48,7 @@ export interface ReportData {
     sessionCode?: string;
     sessionUrl?: string;
     hasPassword?: boolean;
+    inheritanceTitle?: string;
   };
   metricas: {
     caudalRelicto: number;
@@ -97,7 +99,7 @@ export class PdfGenerator {
     }).format(amount) + ' ' + symbol;
   }
 
-  private addHeader(title: string, subtitle?: string) {
+  private addHeader(title: string, subtitle?: string, sessionCode?: string, sessionUrl?: string) {
     this.doc.setFillColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
     this.doc.rect(0, 0, 210, 40, 'F');
     
@@ -110,6 +112,46 @@ export class PdfGenerator {
       this.doc.setFontSize(12);
       this.doc.setFont('helvetica', 'normal');
       this.doc.text(subtitle, 15, 30);
+    }
+
+    // Code in Header (Top Right)
+    if (sessionCode && sessionCode !== "PENDIENTE") {
+        const boxX = 150;
+        const boxY = 5;
+        const boxW = 45;
+        const boxH = 30;
+
+        // Transparent/Light box effect
+        this.doc.setDrawColor(255, 255, 255);
+        this.doc.setLineWidth(0.5);
+        this.doc.roundedRect(boxX, boxY, boxW, boxH, 2, 2, 'S');
+
+        this.doc.setFontSize(7);
+        this.doc.setTextColor(255, 255, 255);
+        this.doc.setFont('helvetica', 'normal');
+        this.doc.text("CÓDIGO RECUPERACIÓN", boxX + (boxW / 2), boxY + 6, { align: 'center' });
+
+        this.doc.setFontSize(12);
+        this.doc.setFont('courier', 'bold');
+        this.doc.text(sessionCode, boxX + (boxW / 2), boxY + 15, { align: 'center' });
+
+        // Session Online Button/Link area
+        const btnY = boxY + 20;
+        const btnH = 6;
+        const btnW = boxW - 10;
+        const btnX = boxX + 5;
+
+        this.doc.setFillColor(255, 255, 255, 0.2); // Semi-transparent white
+        this.doc.roundedRect(btnX, btnY, btnW, btnH, 1, 1, 'F');
+        
+        this.doc.setFontSize(7);
+        this.doc.setFont('helvetica', 'bold');
+        this.doc.text("SESIÓN ONLINE", boxX + (boxW / 2), btnY + 4, { align: 'center' });
+
+        // Make entire area clickable
+        if (sessionUrl) {
+            this.doc.link(boxX, boxY, boxW, boxH, { url: sessionUrl });
+        }
     }
   }
 
@@ -125,67 +167,19 @@ export class PdfGenerator {
   public generate(data: ReportData) {
     // COVER PAGE
     const subtitle = `Generado el ${data.config.fecha}`;
-    this.addHeader("Informe Técnico de Partición", subtitle);
+    this.addHeader("Informe Técnico de Partición", subtitle, data.config.sessionCode, data.config.sessionUrl);
 
-    // Session Status & recovery - Rediseñado
     let y = 50;
-    if (data.config.sessionCode && data.config.sessionCode !== "PENDIENTE") {
-      // Info box container
-      this.doc.setFillColor(248, 250, 252); // Very light slate
-      this.doc.setDrawColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
-      this.doc.setLineWidth(0.5);
-      this.doc.roundedRect(15, y, 180, 48, 4, 4, 'F');
-      
-      // Bottom accent line
-      this.doc.setFillColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
-      this.doc.rect(15, y + 44, 180, 4, 'F');
 
-      // Recovery Code Label
-      this.doc.setFontSize(9);
-      this.doc.setTextColor(100, 116, 139); // slate-500
-      this.doc.setFont('helvetica', 'bold');
-      this.doc.text("CÓDIGO DE RECUPERACIÓN", 105, y + 10, { align: 'center' });
-      
-      // The Code
-      this.doc.setFontSize(22);
-      this.doc.setTextColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
-      this.doc.setFont('courier', 'bold');
-      this.doc.text(data.config.sessionCode, 105, y + 20, { align: 'center' });
-      
-      // Security Status (NO EMOJIS TO AVOID ENCODING ISSUES)
-      const statusText = data.config.hasPassword ? 'ACCESO PROTEGIDO' : 'ACCESO SIN CONTRASEÑA';
-      const statusColor = data.config.hasPassword ? [22, 163, 74] : [217, 119, 6]; // dark green or dark amber
-      
-      this.doc.setFontSize(8);
-      this.doc.setTextColor(statusColor[0], statusColor[1], statusColor[2]);
-      this.doc.setFont('helvetica', 'bold');
-      this.doc.text(statusText, 105, y + 27, { align: 'center' });
-      
-      // Capsule Button for Online Load
-      if (data.config.sessionUrl) {
-        const btnWidth = 50;
-        const btnHeight = 8;
-        const btnX = 105 - (btnWidth / 2);
-        const btnY = y + 32;
-
-        this.doc.setFillColor(this.primaryColor[0], this.primaryColor[1], this.primaryColor[2]);
-        this.doc.roundedRect(btnX, btnY, btnWidth, btnHeight, 4, 4, 'F');
-        
-        this.doc.setFontSize(8);
-        this.doc.setTextColor(255, 255, 255);
+    // INHERITANCE TITLE (Centered in the body)
+    if (data.config.inheritanceTitle) {
+        this.doc.setFontSize(24);
+        this.doc.setTextColor(51, 65, 85); // Slate 700
         this.doc.setFont('helvetica', 'bold');
-        this.doc.textWithLink('CARGAR SESIÓN ONLINE', 105, btnY + 5.5, { 
-          align: 'center',
-          url: data.config.sessionUrl
-        });
-      } else {
-        this.doc.setFontSize(8);
-        this.doc.setTextColor(148, 163, 184); // slate-400
-        this.doc.setFont('helvetica', 'normal');
-        this.doc.text("Guarde este código para recuperar su sesión más tarde", 105, y + 38, { align: 'center' });
-      }
-      
-      y += 60;
+        this.doc.text(data.config.inheritanceTitle, 105, y + 10, { align: 'center' });
+        y += 30;
+    } else {
+         y += 10;
     }
 
     // Resumen Ejecutivo - Card Style
@@ -245,8 +239,10 @@ export class PdfGenerator {
     data.inventario.forEach((activo) => {
         const total = activo.sub_partidas.reduce((a, b) => a + (b.cantidad * b.valor_unitario), 0);
         
-        // Check for page break before each asset table
-        if (invY > 260) {
+        // Dynamic height check for asset table
+        // Header (7) + Summary Row (7) + Rows (7 each) + Padding (10)
+        const estHeight = (activo.sub_partidas.length + 2) * 7 + 10;
+        if (invY + estHeight > 275) {
             this.doc.addPage();
             invY = 20;
         }
@@ -285,8 +281,18 @@ export class PdfGenerator {
     let currentY = finalY + 10;
 
     data.reparto.lotes.forEach((lote) => {
-        // Check page break
-        if (currentY > 250) {
+        // Group assets for height calculation
+        const groupedForHeight: Record<string, any> = {};
+        lote.activos.forEach(item => {
+            groupedForHeight[item.nombre] = true;
+        });
+        const numAssetRows = Object.keys(groupedForHeight).length;
+        const numLiquidityRows = (data.liquidez && lote.idHeredero !== -1) ? 4 : 0;
+        
+        // Title (10) + Table Header (10) + Rows (7 each) + Padding (15)
+        const estHeight = 20 + (numAssetRows + numLiquidityRows) * 7 + 15;
+
+        if (currentY + estHeight > 275) {
             this.doc.addPage();
             currentY = 20;
         }
@@ -313,11 +319,65 @@ export class PdfGenerator {
             groupedActivos[item.nombre].fraccion += item.fraccion;
         });
 
-        const loteBody = Object.entries(groupedActivos).map(([nombre, data]) => [
+        const loteBody: any[] = Object.entries(groupedActivos).map(([nombre, data]) => [
             nombre,
             `${(data.fraccion * 100).toFixed(2)}%`,
             this.formatCurrency(data.valor)
         ]);
+
+        if (data.liquidez && lote.idHeredero !== -1) {
+            const cashAssigned = lote.activos
+                .filter(a => a.nombre === "Caja / Dinero en Efectivo" && a.tipo !== 'gananciales')
+                .reduce((sum, a) => sum + a.valor, 0);
+            
+            const expensePerHeir = data.liquidez.totalGastosEstimados / (data.config.numHerederos || 1);
+            
+            // Find compensation for this heir
+            const compensacion = data.reparto.compensaciones.find(c => c.heredero === lote.id);
+            const compensacionAmount = compensacion ? compensacion.diferencia : 0;
+            
+            const netLiquidity = cashAssigned - expensePerHeir + compensacionAmount;
+
+             loteBody.push(
+                ['', '', ''], // Spacer
+                [{ content: 'Adjudicación Líquida', styles: { fontStyle: 'italic', textColor: [100, 116, 139], fontSize: 8 } }, '', { content: `+${this.formatCurrency(cashAssigned)}`, styles: { fontSize: 8 } }],
+                [{ content: 'Gasto Proporcional', styles: { fontStyle: 'italic', textColor: [220, 38, 38], fontSize: 8 } }, '', { content: `-${this.formatCurrency(expensePerHeir)}`, styles: { fontSize: 8, textColor: [220, 38, 38] } }]
+            );
+            
+            // Add compensation row if exists
+            if (compensacionAmount !== 0) {
+                loteBody.push(
+                    [{ 
+                        content: 'Compensación Económica', 
+                        styles: { 
+                            fontStyle: 'italic', 
+                            textColor: compensacionAmount > 0 ? [22, 163, 74] : [220, 38, 38], 
+                            fontSize: 8 
+                        } 
+                    }, '', { 
+                        content: `${compensacionAmount > 0 ? '+' : ''}${this.formatCurrency(compensacionAmount)}`, 
+                        styles: { 
+                            fontSize: 8, 
+                            textColor: compensacionAmount > 0 ? [22, 163, 74] : [220, 38, 38] 
+                        } 
+                    }]
+                );
+            }
+            
+            loteBody.push(
+                [
+                    { 
+                        content: netLiquidity >= 0 ? 'LIQUIDEZ NETA' : 'APORTACIÓN NECESARIA', 
+                        styles: { fontStyle: 'bold', textColor: netLiquidity >= 0 ? [22, 163, 74] : [220, 38, 38] } 
+                    }, 
+                    '', 
+                    { 
+                        content: this.formatCurrency(netLiquidity), 
+                        styles: { fontStyle: 'bold', textColor: netLiquidity >= 0 ? [22, 163, 74] : [220, 38, 38] } 
+                    }
+                ]
+            );
+        }
 
         autoTable(this.doc, {
             startY: currentY + 5,
@@ -328,7 +388,37 @@ export class PdfGenerator {
             margin: { left: 20 }
         });
 
-        currentY = (this.doc as any).lastAutoTable.finalY + 15;
+        currentY = (this.doc as any).lastAutoTable.finalY + 5;
+        
+        // Add Cuota Individual box (only for non-spouse heirs)
+        if (lote.idHeredero !== -1) {
+            const boxX = 20;
+            const boxY = currentY;
+            const boxW = 170;
+            const boxH = 10;
+            
+            // Draw rounded rectangle box
+            this.doc.setFillColor(224, 231, 255); // indigo-50
+            this.doc.setDrawColor(165, 180, 252); // indigo-200
+            this.doc.setLineWidth(0.3);
+            this.doc.roundedRect(boxX, boxY, boxW, boxH, 2, 2, 'FD');
+            
+            // Add label
+            this.doc.setFontSize(8);
+            this.doc.setTextColor(79, 70, 229); // indigo-600
+            this.doc.setFont('helvetica', 'bold');
+            this.doc.text('CUOTA INDIVIDUAL', boxX + 3, boxY + 6);
+            
+            // Add value
+            this.doc.setFontSize(9);
+            this.doc.setTextColor(67, 56, 202); // indigo-700
+            this.doc.setFont('helvetica', 'bold');
+            this.doc.text(this.formatCurrency(data.metricas.cuotaIdeal), boxX + boxW - 3, boxY + 6, { align: 'right' });
+            
+            currentY += boxH + 10;
+        } else {
+            currentY += 10;
+        }
     });
 
     // COMPENSACIONES
@@ -336,7 +426,7 @@ export class PdfGenerator {
         this.doc.addPage();
         currentY = 20;
     }
-    this.addSectionTitle("3. Compensaciones en Metálico", currentY);
+    this.addSectionTitle("3. Compensaciones económicas", currentY);
     
     // Filtrar quienes pagan y cobran
     const debenPagar = data.reparto.compensaciones.filter(c => c.diferencia < -0.01);
@@ -344,20 +434,78 @@ export class PdfGenerator {
     
     if (debenPagar.length > 0) {
         currentY += 10;
-        this.doc.setFontSize(10);
-        this.doc.text("Para corregir las desviaciones de valor, se establecen los siguientes pagos:", 15, currentY);
+        this.doc.setFontSize(9);
+        this.doc.setTextColor(71, 85, 105);
+        this.doc.setFont('helvetica', 'normal');
+        const explanationText = "El reparto de bienes queda equilibrado mediante compensaciones económicas. Los herederos con exceso de adjudicación compensan a aquellos con déficit hasta alcanzar la cuota ideal.";
+        const splitExplanation = this.doc.splitTextToSize(explanationText, 180);
+        this.doc.text(splitExplanation, 15, currentY);
+        currentY += splitExplanation.length * 5 + 5;
         
-        // Tabla simple de compensaciones
+        // Create detailed payment matrix
+        const paymentMatrix: { from: string, to: string, amount: number }[] = [];
+        
+        // Simple distribution: each payer pays proportionally to each receiver
+        const totalToPay = debenPagar.reduce((sum, p) => sum + Math.abs(p.diferencia), 0);
+        const totalToReceive = debenCobrar.reduce((sum, r) => sum + r.diferencia, 0);
+        
+        debenPagar.forEach(payer => {
+            const payerAmount = Math.abs(payer.diferencia);
+            
+            debenCobrar.forEach(receiver => {
+                const receiverProportion = receiver.diferencia / totalToReceive;
+                const payment = payerAmount * receiverProportion;
+                
+                if (payment > 0.01) {
+                    paymentMatrix.push({
+                        from: payer.nombreHeredero,
+                        to: receiver.nombreHeredero,
+                        amount: payment
+                    });
+                }
+            });
+        });
+        
+        // Display payment matrix
+        const paymentBody = paymentMatrix.map(p => [
+            p.from,
+            '→',
+            p.to,
+            this.formatCurrency(p.amount)
+        ]);
+        
+        autoTable(this.doc, {
+            startY: currentY,
+            head: [['Pagador', '', 'Receptor', 'Importe']],
+            body: paymentBody,
+            headStyles: { fillColor: this.secondaryColor as any },
+            columnStyles: {
+                1: { halign: 'center', cellWidth: 10 }
+            },
+            margin: { left: 15 }
+        });
+
+        currentY = (this.doc as any).lastAutoTable.finalY + 10;
+        
+        // Summary table
+        this.doc.setFontSize(9);
+        this.doc.setTextColor(100, 116, 139);
+        this.doc.setFont('helvetica', 'bold');
+        this.doc.text("Resumen de Compensaciones:", 15, currentY);
+        currentY += 5;
+        
         const compBody = [
-            ...debenPagar.map(c => [`${c.nombreHeredero}`, 'PAGA (Exceso)', this.formatCurrency(Math.abs(c.diferencia))]),
-            ...debenCobrar.map(c => [`${c.nombreHeredero}`, 'RECIBE (Defecto)', this.formatCurrency(c.diferencia)])
+            ...debenPagar.map(c => [{ content: c.nombreHeredero, styles: { textColor: [220, 38, 38] } }, 'PAGA (Exceso)', { content: this.formatCurrency(Math.abs(c.diferencia)), styles: { textColor: [220, 38, 38] } }]),
+            ...debenCobrar.map(c => [{ content: c.nombreHeredero, styles: { textColor: [22, 163, 74] } }, 'RECIBE (Déficit)', { content: this.formatCurrency(c.diferencia), styles: { textColor: [22, 163, 74] } }])
         ];
 
         autoTable(this.doc, {
-            startY: currentY + 5,
-            head: [['Partícipe', 'Concepto', 'Importe']],
-            body: compBody,
-            headStyles: { fillColor: this.secondaryColor as any },
+            startY: currentY,
+            head: [['Heredero', 'Concepto', 'Importe']],
+            body: compBody as any,
+            headStyles: { fillColor: [71, 85, 105] },
+            styles: { fontSize: 8 },
+            margin: { left: 15 }
         });
 
         currentY = (this.doc as any).lastAutoTable.finalY + 15;
@@ -410,18 +558,7 @@ export class PdfGenerator {
             ['1. Efectivo / Caja Disponible en Herencia', this.formatCurrency(data.liquidez.efectivoDisponibleTotal)],
             ['2. Gastos Estimados Generales (Impuestos CCAA + Gestión)', this.formatCurrency(data.liquidez.gastosGenerales)],
             ['3. Impuestos/Gastos Específicos sobre Activos', this.formatCurrency(data.liquidez.gastosActivos)],
-            ['TOTAL ESTIMADO DE GASTOS', { content: this.formatCurrency(data.liquidez.totalGastosEstimados), styles: { fontStyle: 'bold', textColor: [220, 38, 38] } }],
-            ['', ''],
-            [
-              data.liquidez.balanceLiquidez >= 0 ? 'SOBRANTE LIQUIDEZ POR CADA HEREDERO' : 'APORTACIÓN NECESARIA POR CADA HEREDERO', 
-              { 
-                content: this.formatCurrency(Math.abs(diffPerHeir)), 
-                styles: { 
-                    fontStyle: 'bold', 
-                    textColor: data.liquidez.balanceLiquidez >= 0 ? [22, 163, 74] : [220, 38, 38] 
-                } 
-              }
-            ]
+            ['TOTAL ESTIMADO DE GASTOS', { content: this.formatCurrency(data.liquidez.totalGastosEstimados), styles: { fontStyle: 'bold', textColor: [220, 38, 38] } }]
         ];
 
         autoTable(this.doc, {

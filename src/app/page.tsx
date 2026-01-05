@@ -101,6 +101,7 @@ export default function Page() {
   );
   const numHerederos = herederos.length;
   const [moneda, setMoneda] = useState('EUR');
+  const [inheritanceTitle, setInheritanceTitle] = useState("Familia Martínez Molina");
   const [activos, setActivos] = useState([
     {
       id: 'cash',
@@ -778,7 +779,8 @@ export default function Page() {
             fecha: new Date().toLocaleDateString('es-ES'),
             sessionCode: savedCode || sessionCode || "PENDIENTE",
             sessionUrl: savedCode ? `${currentUrl}/?code=${savedCode}` : undefined,
-            hasPassword: password !== null || isSessionProtected
+            hasPassword: password !== null || isSessionProtected,
+            inheritanceTitle
           },
           metricas: {
             caudalRelicto,
@@ -842,6 +844,7 @@ export default function Page() {
             setHerederos(data.data.herederos);
             setActivos(data.data.activos);
             setMoneda(data.data.moneda);
+            setInheritanceTitle(data.data.inheritanceTitle || "Familia Martínez Molina");
             if (data.data.fiscalConfig) {
               setFiscalConfig(data.data.fiscalConfig);
             }
@@ -901,6 +904,7 @@ export default function Page() {
         herederos,
         activos,
         moneda,
+        inheritanceTitle,
         fiscalConfig,
         version: 1
       };
@@ -1107,7 +1111,22 @@ export default function Page() {
       <main className="max-w-[1400px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
         
         {/* Left Column: Inventario */}
+        {/* Left Column: Inventario */}
         <div className="lg:col-span-7 space-y-6">
+            
+            {/* Editable Inheritance Title */}
+            <div className="mb-6">
+                <input 
+                    type="text" 
+                    value={inheritanceTitle}
+                    onChange={(e) => setInheritanceTitle(e.target.value)}
+                    className={`text-3xl font-bold w-full bg-transparent border-none focus:ring-0 p-0 ${
+                        inheritanceTitle === "Familia Martínez Molina" ? "text-slate-400" : "text-slate-800"
+                    }`}
+                    placeholder="Familia Martínez Molina"
+                />
+            </div>
+
             <h2 className="text-lg font-bold flex items-center gap-2 text-slate-700">
               <Home className="w-5 h-5" /> Inventario de Activos
             </h2>
@@ -1507,19 +1526,7 @@ export default function Page() {
                 <span className="font-bold text-rose-500">{formatCurrency(analisisLiquidez.totalGastosEstimados)}</span>
               </div>
               
-              <div className={`mt-6 p-4 rounded-xl border-2 flex flex-col items-center gap-1 ${analisisLiquidez.balanceLiquidez >= 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'}`}>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  {analisisLiquidez.balanceLiquidez >= 0 ? 'Sobrante por cada Heredero' : 'Aportación por cada Heredero'}
-                </span>
-                <div className={`text-2xl font-black ${analisisLiquidez.balanceLiquidez >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                  {formatCurrency(Math.abs(analisisLiquidez.balancePorHeredero))}
-                </div>
-                <p className="text-[9px] text-center text-slate-400 mt-2 px-2 leading-tight">
-                  {analisisLiquidez.balanceLiquidez >= 0 
-                   ? "* El sobrante de efectivo se reparte equitativamente entre los adjudicatarios." 
-                   : "* El efectivo disponible no cubre los gastos previstos. Cada heredero deberá aportar la diferencia."}
-                </p>
-              </div>
+
             </div>
           </div>
 
@@ -1616,7 +1623,7 @@ export default function Page() {
                         <div className="space-y-2">
                           {activosGananciales.length > 0 && <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Adjudicación (Herencia)</h4>}
                           {activosHerencia.length === 0 && !activosGananciales.length && <p className="text-xs text-slate-400 italic text-center py-2">Sin bienes asignados</p>}
-                          {activosHerencia.filter((a: any) => a.id !== 'cash').map((act: any) => (
+                          {activosHerencia.filter((a: any) => a.nombre !== 'Caja / Dinero en Efectivo').map((act: any) => (
                             <div key={act.id} className="flex justify-between items-center bg-slate-50/50 p-2.5 rounded-lg border border-slate-100 hover:bg-indigo-50/30 transition-colors group">
                               <div className="flex flex-col">
                                 <div className="flex items-center gap-2">
@@ -1638,24 +1645,48 @@ export default function Page() {
                             </div>
                           ))}
 
-                          {/* Renderizar Balance de Liquidez en lugar de Activo Caja */}
-                          {activosHerencia.some((a: any) => a.id === 'cash') && (
-                            <div className={`flex justify-between items-center p-2.5 rounded-lg border transition-colors group ${analisisLiquidez.balancePorHeredero >= 0 ? 'bg-emerald-50/50 border-emerald-100' : 'bg-rose-50/50 border-rose-100'}`}>
-                              <div className="flex flex-col">
-                                <span className={`text-sm font-bold ${analisisLiquidez.balancePorHeredero >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                                  {analisisLiquidez.balancePorHeredero >= 0 ? 'Sobrante de Liquidez' : 'Aportación para Impuestos'}
-                                </span>
-                                <span className="text-[10px] text-slate-400 font-bold mt-0.5">
-                                  {analisisLiquidez.balancePorHeredero >= 0 ? '(Tras pago de gastos)' : '(Déficit a cubrir)'}
-                                </span>
-                              </div>
-                              <span className={`text-sm font-black ${analisisLiquidez.balancePorHeredero >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                {formatCurrency(Math.abs(analisisLiquidez.balancePorHeredero))}
-                              </span>
-                            </div>
-                          )}
+                          {/* El bloque de Balance de Liquidez se mostrará abajo en el footer de la tarjeta */}
                         </div>
                       </div>
+
+                      {/* LIQUIDEZ Y GASTOS POR HEREDERO */}
+                      {!esConyuge && (() => {
+                          const cashAssigned = lote.activos
+                            .filter((a: any) => a.nombre === "Caja / Dinero en Efectivo" && a.tipo !== 'gananciales')
+                            .reduce((sum: number, a: any) => sum + a.valor, 0);
+
+                          const expensePerHeir = analisisLiquidez.totalGastosEstimados / (numHerederosEfectivos || 1);
+                          
+                          // Find compensation for this heir
+                          const compensacion = reparto.compensaciones.find(c => c.heredero === lote.id);
+                          const compensacionAmount = compensacion ? compensacion.diferencia : 0;
+                          
+                          const netLiquidity = cashAssigned - expensePerHeir + compensacionAmount;
+
+                          return (
+                            <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+                                <div className="flex justify-between items-center text-xs text-slate-500">
+                                    <span>Adjudicación Líquida:</span>
+                                    <span className="font-bold">{formatCurrency(cashAssigned)}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-xs text-rose-500">
+                                    <span>Gasto Proporcional:</span>
+                                    <span className="font-bold">-{formatCurrency(expensePerHeir)}</span>
+                                </div>
+                                {compensacionAmount !== 0 && (
+                                  <div className={`flex justify-between items-center text-xs ${compensacionAmount > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                      <span>Compensación Económica:</span>
+                                      <span className="font-bold">{compensacionAmount > 0 ? '+' : ''}{formatCurrency(compensacionAmount)}</span>
+                                  </div>
+                                )}
+                                
+                                <div className={`flex justify-between items-center p-2 rounded-lg border ${netLiquidity >= 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-rose-50 border-rose-100 text-rose-700'}`}>
+                                    <span className="text-xs font-bold uppercase">{netLiquidity >= 0 ? 'Liquidez Neta' : 'Aportación Necesaria'}</span>
+                                    <span className="font-black text-sm">{formatCurrency(netLiquidity)}</span>
+                                </div>
+                            </div>
+                          );
+                      })()}
                       
                       {!esConyuge && (() => {
                         const compensacion = reparto.compensaciones.find(c => c.heredero === lote.id);
@@ -1672,6 +1703,16 @@ export default function Page() {
                           </div>
                         );
                       })()}
+                      
+                      {/* CUOTA INDIVIDUAL BOX */}
+                      {!esConyuge && (
+                        <div className="mt-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs font-bold text-indigo-600 uppercase">Cuota Individual</span>
+                            <span className="text-sm font-black text-indigo-700">{formatCurrency(caudalRelicto / numHerederos)}</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 });
