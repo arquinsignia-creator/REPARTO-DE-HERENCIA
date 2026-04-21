@@ -784,7 +784,7 @@ export default function Page() {
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans p-4 md:p-10">
       
       {/* Header */}
-      <header className="max-w-[1400px] mx-auto mb-6 md:mb-10 flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-6">
+      <header className="max-w-[1400px] mx-auto mb-6 md:mb-10 flex flex-col xl:flex-row xl:items-center justify-between gap-4 xl:gap-6">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-slate-800 flex items-center gap-3">
             <div className="bg-indigo-100 p-2 rounded-lg shrink-0">
@@ -795,96 +795,97 @@ export default function Page() {
           <p className="text-slate-500 mt-1 ml-12 text-sm hidden md:block">Cálculo técnico y equitativo de lotes patrimoniales</p>
         </div>
         
-        <div className="flex items-center justify-between md:justify-start gap-4 bg-white p-2 pr-4 md:pr-6 rounded-xl shadow-sm border border-slate-200 w-full md:w-auto">
-          <div className="flex items-center gap-3 px-2 md:px-4 py-1 md:py-2 border-r border-slate-100">
-            <Users className="w-5 h-5 text-slate-400" />
-            <span className="text-lg font-bold text-indigo-600">{numHerederos}</span>
-            <span className="text-sm text-slate-500 font-medium hidden sm:inline">Herederos</span>
-            <div className="flex flex-col ml-2">
-               <button onClick={agregarHeredero} className="text-slate-400 hover:text-indigo-600"><ChevronDown className="w-3 h-3 rotate-180" /></button>
-               <button onClick={eliminarHeredero} className="text-slate-400 hover:text-indigo-600"><ChevronDown className="w-3 h-3" /></button>
+        <div className="flex flex-wrap items-center gap-3 justify-between xl:justify-start">
+          <div className="flex items-center justify-between md:justify-start gap-4 bg-white p-2 pr-4 md:pr-6 rounded-xl shadow-sm border border-slate-200">
+            <div className="flex items-center gap-3 px-2 md:px-4 py-1 md:py-2 border-r border-slate-100">
+              <Users className="w-5 h-5 text-slate-400" />
+              <span className="text-lg font-bold text-indigo-600">{numHerederos}</span>
+              <span className="text-sm text-slate-500 font-medium hidden sm:inline">Herederos</span>
+              <div className="flex flex-col ml-2">
+                 <button onClick={agregarHeredero} className="text-slate-400 hover:text-indigo-600"><ChevronDown className="w-3 h-3 rotate-180" /></button>
+                 <button onClick={eliminarHeredero} className="text-slate-400 hover:text-indigo-600"><ChevronDown className="w-3 h-3" /></button>
+              </div>
             </div>
+            <select 
+              value={moneda} 
+              onChange={(e) => setMoneda(e.target.value)}
+              className="font-bold text-slate-700 bg-transparent focus:outline-none cursor-pointer text-sm"
+            >
+              <option value="EUR">EUR (€)</option>
+              <option value="USD">USD ($)</option>
+              <option value="MXN">MXN ($)</option>
+            </select>
           </div>
-          <select 
-            value={moneda} 
-            onChange={(e) => setMoneda(e.target.value)}
-            className="font-bold text-slate-700 bg-transparent focus:outline-none cursor-pointer text-sm"
-          >
-            <option value="EUR">EUR (€)</option>
-            <option value="USD">USD ($)</option>
-            <option value="MXN">MXN ($)</option>
-          </select>
-        </div>
 
-        {/* Botones de Acción Global */}
-        <div className="flex items-center gap-2">
-           <button 
-             onClick={() => setShowConfigModal(true)}
-             className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-200 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"
-           >
-             <Scale className="w-4 h-4 text-indigo-600" />
-             <span className="hidden sm:inline">Config. Avanzada</span>
-           </button>
-
-           {sessionCode && (
+          {/* Botones de Acción Global */}
+          <div className="flex items-center gap-2">
              <button 
-               onClick={() => saveSession()}
-               className={`
-                 flex items-center gap-2 px-4 py-2 rounded-xl shadow-sm border text-sm font-bold transition-all
-                 ${saveStatus === 'saved' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}
-               `}
+               onClick={() => setShowConfigModal(true)}
+               className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-200 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"
              >
-               <Save className={`w-4 h-4 ${saveStatus === 'saved' ? 'text-emerald-500' : 'text-indigo-600'}`} />
-               <span className="hidden sm:inline">{saveStatus === 'saved' ? 'Guardado' : 'Guardar'}</span>
+               <Scale className="w-4 h-4 text-indigo-600" />
+               <span className="hidden sm:inline">Configuración</span>
              </button>
-           )}
-        </div>
 
-        {/* Carga de Sesión */}
-        <div className="flex items-center gap-2 bg-white p-2 rounded-xl shadow-sm border border-slate-200 w-full md:w-auto">
-          {sessionCode ? (
-             <div className="flex items-center gap-2 px-3">
-               <span className="text-xs text-slate-400 font-bold uppercase">Sesión:</span>
-               <span className="text-lg font-bold text-indigo-600 tracking-wider">{sessionCode}</span>
-               <button
-                 onClick={() => {
-                   navigator.clipboard.writeText(sessionCode);
-                   // Visual feedback
-                   const btn = document.activeElement as HTMLButtonElement;
-                   if (btn) {
-                     const originalHTML = btn.innerHTML;
-                     btn.innerHTML = '<svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
-                     setTimeout(() => {
-                       btn.innerHTML = originalHTML;
-                     }, 1500);
-                   }
-                 }}
-                 className="p-1.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 transition-colors"
-                 title="Copiar código"
-               >
-                 <Copy className="w-4 h-4" />
-               </button>
-               {saveStatus === 'saved' && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
-             </div>
-          ) : (
-             <div className="flex items-center gap-2">
-               <input 
-                 value={sessionLoadInput}
-                 onChange={(e) => setSessionLoadInput(e.target.value)}
-                 placeholder="CÓDIGO (ej: aB3xY9Zk)"
-                 className="text-xs font-bold text-slate-700 bg-slate-50 border-none rounded py-1.5 pl-3 pr-2 focus:ring-1 focus:ring-indigo-500 w-[140px]"
-                 maxLength={8}
-               />
+             {sessionCode && (
                <button 
-                onClick={() => loadSession(sessionLoadInput)}
-                disabled={!sessionLoadInput || isLoadingSession}
-                className="p-1.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 disabled:opacity-50"
-                title="Cargar Sesión"
+                 onClick={() => saveSession()}
+                 className={`
+                   flex items-center gap-2 px-4 py-2 rounded-xl shadow-sm border text-sm font-bold transition-all
+                   ${saveStatus === 'saved' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}
+                 `}
                >
-                 <Search className="w-4 h-4" />
+                 <Save className={`w-4 h-4 ${saveStatus === 'saved' ? 'text-emerald-500' : 'text-indigo-600'}`} />
+                 <span className="hidden sm:inline">{saveStatus === 'saved' ? 'Guardado' : 'Guardar'}</span>
                </button>
-             </div>
-          )}
+             )}
+          </div>
+
+          {/* Carga de Sesión */}
+          <div className="flex items-center gap-2 bg-white p-2 rounded-xl shadow-sm border border-slate-200">
+            {sessionCode ? (
+               <div className="flex items-center gap-2 px-3">
+                 <span className="text-xs text-slate-400 font-bold uppercase">Sesión:</span>
+                 <span className="text-lg font-bold text-indigo-600 tracking-wider">{sessionCode}</span>
+                 <button
+                   onClick={() => {
+                     navigator.clipboard.writeText(sessionCode);
+                     const btn = document.activeElement as HTMLButtonElement;
+                     if (btn) {
+                       const originalHTML = btn.innerHTML;
+                       btn.innerHTML = '<svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
+                       setTimeout(() => {
+                         btn.innerHTML = originalHTML;
+                       }, 1500);
+                     }
+                   }}
+                   className="p-1.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 transition-colors"
+                   title="Copiar código"
+                 >
+                   <Copy className="w-4 h-4" />
+                 </button>
+                 {saveStatus === 'saved' && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+               </div>
+            ) : (
+               <div className="flex items-center gap-2">
+                 <input 
+                   value={sessionLoadInput}
+                   onChange={(e) => setSessionLoadInput(e.target.value)}
+                   placeholder="CÓDIGO (ej: aB3xY9Zk)"
+                   className="text-xs font-bold text-slate-700 bg-slate-50 border-none rounded py-1.5 pl-3 pr-2 focus:ring-1 focus:ring-indigo-500 w-[140px]"
+                   maxLength={8}
+                 />
+                 <button 
+                  onClick={() => loadSession(sessionLoadInput)}
+                  disabled={!sessionLoadInput || isLoadingSession}
+                  className="p-1.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 disabled:opacity-50"
+                  title="Cargar Sesión"
+                 >
+                   <Search className="w-4 h-4" />
+                 </button>
+               </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -907,9 +908,10 @@ export default function Page() {
                 />
             </div>
 
-            <h2 className="text-lg font-bold flex items-center gap-2 text-slate-700">
+            <h2 className="text-lg font-bold flex items-center gap-2 text-slate-700 mb-2">
               <Home className="w-5 h-5" /> Inventario de Activos
             </h2>
+
 
           <div className="space-y-6">
             {activos.map((activo) => {
@@ -922,168 +924,169 @@ export default function Page() {
                   {/* Asset Header - Clickable for Accordion */}
                   <div 
                     onClick={() => { if (!datosLocked) toggleAssetExpansion(activo.id); }}
-                    className={`p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 gap-4 ${datosLocked ? 'cursor-default' : 'cursor-pointer hover:bg-slate-50/50'} transition-colors ${!isExpanded ? 'border-b-transparent' : ''}`}
+                    className={`p-4 md:p-5 flex flex-col justify-between border-b border-slate-100 gap-4 ${datosLocked ? 'cursor-default' : 'cursor-pointer hover:bg-slate-50/50'} transition-colors ${!isExpanded ? 'border-b-transparent' : ''}`}
                   >
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 md:gap-4 flex-1 w-full">
-                      <div className="flex items-center justify-between w-full md:w-auto gap-2">
-                        <div className="flex items-center gap-2">
-                          {!datosLocked && (
-                            <div className={`p-1.5 rounded-lg transition-colors ${isExpanded ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-50 text-slate-400'}`}>
-                              <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isExpanded ? '' : '-rotate-90'}`} />
-                            </div>
-                          )}
-                          {datosLocked && (
-                            <div className="p-1.5 rounded-lg bg-amber-50 text-amber-500">
-                              <Lock className="w-4 h-4" />
-                            </div>
-                          )}
-                          <input 
-                            type="text" 
-                            value={activo.nombre}
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => {
-                              if (isFixed || datosLocked) return;
-                              setActivos(activos.map(a => a.id === activo.id ? {...a, nombre: e.target.value} : a));
-                            }}
-                            readOnly={isFixed || datosLocked}
-                            className={`text-lg md:text-xl font-extrabold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 p-0 flex-1 md:min-w-[300px] truncate ${ (isFixed || datosLocked) ? 'select-none cursor-default' : '' }`}
-                            placeholder="Nombre del activo..."
-                          />
+                    {/* Top Row: Chevron/Lock, Title, Trash */}
+                    <div className="flex items-start md:items-center gap-2 w-full">
+                      {!datosLocked && (
+                        <div className={`p-1.5 mt-0.5 md:mt-0 rounded-lg shrink-0 transition-colors ${isExpanded ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-50 text-slate-400'}`}>
+                          <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isExpanded ? '' : '-rotate-90'}`} />
                         </div>
-                          {/* Espacio reservado para futuros controles */}
-
-                      </div>
+                      )}
+                      {datosLocked && (
+                        <div className="p-1.5 mt-0.5 md:mt-0 rounded-lg bg-amber-50 text-amber-500 shrink-0">
+                          <Lock className="w-4 h-4" />
+                        </div>
+                      )}
                       
-                      <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
-                        {!isFixed && (
-                          <button 
-                            onClick={() => toggleDivisible(activo.id)}
-                            className={`
-                              text-[10px] uppercase font-bold px-3 py-1.5 rounded-lg tracking-wider transition-all transform active:scale-95
-                              border-b-4
-                              ${activo.divisible 
-                                ? 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200 hover:border-emerald-300 shadow-sm' 
-                                : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 hover:border-slate-300 shadow-sm'
-                              }
-                            `}
-                          >
-                            {activo.divisible ? 'DIVISIBLE' : 'INDIVISIBLE'}
-                          </button>
-                        )}
+                      <input 
+                        type="text" 
+                        value={activo.nombre}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          if (isFixed || datosLocked) return;
+                          setActivos(activos.map(a => a.id === activo.id ? {...a, nombre: e.target.value} : a));
+                        }}
+                        readOnly={isFixed || datosLocked}
+                        className={`text-lg md:text-xl font-extrabold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 p-0 w-full ${ (isFixed || datosLocked) ? 'select-none cursor-default' : '' }`}
+                        placeholder="Nombre del activo..."
+                      />
 
-                        {fiscalConfig.gananciales && (
-                          <button 
-                            onClick={() => setActivos(activos.map(a => a.id === activo.id ? { ...a, esGanancial: a.esGanancial === false ? true : false } : a))}
-                            className={`
-                              text-[10px] uppercase font-bold px-3 py-1.5 rounded-lg tracking-wider transition-all transform active:scale-95
-                              border-b-4
-                              ${activo.esGanancial !== false
-                                ? 'bg-indigo-100 text-indigo-700 border-indigo-200 hover:bg-indigo-200 hover:border-indigo-300 shadow-sm' 
-                                : 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200 hover:border-amber-300 shadow-sm'
-                              }
-                            `}
-                          >
-                            {activo.esGanancial !== false ? 'GANANCIAL' : 'PRIVATIVO'}
-                          </button>
-                        )}
-                        
-                        <div className="relative">
-                          <button 
-                            onClick={() => setActiveDropdown(activeDropdown === activo.id ? null : activo.id)}
-                            className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 hover:bg-slate-100 transition-colors text-[11px] font-bold text-slate-600 focus:ring-2 focus:ring-indigo-100"
-                          >
-                            <Users className="w-3.5 h-3.5 text-slate-400" />
-                            {activo.asignarA.length === 0 
-                              ? "Reparto Automático" 
-                              : `${activo.asignarA.length} Asignado${activo.asignarA.length > 1 ? 's' : ''}`
-                            }
-                            <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${activeDropdown === activo.id ? 'rotate-180' : ''}`} />
-                          </button>
-                          
-                          {/* Dropdown Menu */}
-                          {activeDropdown === activo.id && (
-                            <>
-                              <div 
-                                className="fixed inset-0 z-40" 
-                                onClick={() => setActiveDropdown(null)}
-                              />
-                              <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2 animate-in fade-in zoom-in duration-200">
-                                <div className="space-y-1">
-                                  {/* Participantes: Herederos + Cónyuge opcional */}
-                                  {[...herederos, ...(fiscalConfig.gananciales ? [{ id: CONYUGE_ID, nombre: "Cónyuge Viudo/a" }] : [])].map(p => {
-                                    const isChecked = activo.asignarA.includes(p.id);
-                                    return (
-                                      <button
-                                        key={p.id}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          asignarActivo(activo.id, p.id);
-                                        }}
-                                        className={`
-                                          flex items-center gap-3 w-full px-2 py-2 rounded-lg text-left transition-colors
-                                          ${isChecked ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-600'}
-                                        `}
-                                      >
-                                        <div className={`
-                                          w-4 h-4 rounded border flex items-center justify-center transition-colors
-                                          ${isChecked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}
-                                        `}>
-                                          {isChecked && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                                        </div>
-                                        <span className="text-xs font-medium truncate">{p.nombre}</span>
-                                      </button>
-                                    );
-                                  })}
-                                  
-                                  {activo.asignarA.length > 0 && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setActivos(activos.map(a => a.id === activo.id ? { ...a, asignarA: [] } : a));
-                                      }}
-                                      className="w-full text-center py-1 mt-1 text-[10px] text-slate-400 hover:text-slate-600 font-bold uppercase tracking-wider border-t border-slate-100 pt-2"
-                                    >
-                                      Limpiar selección
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-6" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex flex-col items-end min-w-[120px]">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Valor total</span>
-                        <span className="text-lg md:text-xl font-black text-indigo-600">
-                          {formatCurrency(activo.sub_partidas.reduce((acc: number, sub: any) => acc + (sub.cantidad * sub.valor_unitario), 0))}
-                        </span>
-                      </div>
                       {!isFixed && !datosLocked && (
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
                             eliminarActivo(activo.id);
                           }}
-                          className="flex items-center justify-center w-10 h-10 rounded-xl bg-rose-50 text-rose-500 hover:bg-rose-100 transition-colors shadow-sm shrink-0"
+                          className="flex items-center justify-center p-1.5 mt-0.5 md:mt-0 rounded-lg bg-rose-50 text-rose-500 hover:bg-rose-100 transition-colors shrink-0 ml-auto"
+                          title="Eliminar activo"
                         >
-                          <Trash2 className="w-5 h-5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       )}
-                      {/* Notes Button */}
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setNotasAbiertas(notasAbierta ? null : activo.id);
-                        }}
-                        className={`flex items-center justify-center w-10 h-10 rounded-xl transition-colors shadow-sm shrink-0 ${
-                          activo.notas ? 'bg-amber-50 text-amber-600 hover:bg-amber-100 ring-1 ring-amber-200' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'
-                        }`}
-                        title="Notas y referencias"
-                      >
-                        <StickyNote className="w-5 h-5" />
-                      </button>
+                    </div>
+                    
+                    {/* Bottom Row: Badges, Notes, Valor Total */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 w-full pl-0 md:pl-2">
+                       <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                          {!isFixed && (
+                            <button 
+                              onClick={() => toggleDivisible(activo.id)}
+                              className={`
+                                text-[11px] uppercase font-bold px-3 py-1.5 rounded-lg tracking-wider transition-all transform active:scale-95
+                                border-b-4
+                                ${activo.divisible 
+                                  ? 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200 hover:border-emerald-300 shadow-sm' 
+                                  : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 hover:border-slate-300 shadow-sm'
+                                }
+                              `}
+                            >
+                              {activo.divisible ? 'DIVISIBLE' : 'INDIVISIBLE'}
+                            </button>
+                          )}
+
+                          {fiscalConfig.gananciales && (
+                            <button 
+                              onClick={() => setActivos(activos.map(a => a.id === activo.id ? { ...a, esGanancial: a.esGanancial === false ? true : false } : a))}
+                              className={`
+                                text-[11px] uppercase font-bold px-3 py-1.5 rounded-lg tracking-wider transition-all transform active:scale-95
+                                border-b-4
+                                ${activo.esGanancial !== false
+                                  ? 'bg-indigo-100 text-indigo-700 border-indigo-200 hover:bg-indigo-200 hover:border-indigo-300 shadow-sm' 
+                                  : 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200 hover:border-amber-300 shadow-sm'
+                                }
+                              `}
+                            >
+                              {activo.esGanancial !== false ? 'GANANCIAL' : 'PRIVATIVO'}
+                            </button>
+                          )}
+                          
+                          <div className="relative">
+                            <button 
+                              onClick={() => setActiveDropdown(activeDropdown === activo.id ? null : activo.id)}
+                              className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 hover:bg-slate-100 transition-colors text-[11px] font-bold text-slate-600 focus:ring-2 focus:ring-indigo-100"
+                            >
+                              <Users className="w-3.5 h-3.5 text-slate-400" />
+                              {activo.asignarA.length === 0 
+                                ? "Reparto Automático" 
+                                : `${activo.asignarA.length} Asignado${activo.asignarA.length > 1 ? 's' : ''}`
+                              }
+                              <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${activeDropdown === activo.id ? 'rotate-180' : ''}`} />
+                            </button>
+                            
+                            {/* Dropdown Menu */}
+                            {activeDropdown === activo.id && (
+                              <>
+                                <div 
+                                  className="fixed inset-0 z-40" 
+                                  onClick={() => setActiveDropdown(null)}
+                                />
+                                <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2 animate-in fade-in zoom-in duration-200">
+                                  <div className="space-y-1">
+                                    {/* Participantes: Herederos + Cónyuge opcional */}
+                                    {[...herederos, ...(fiscalConfig.gananciales ? [{ id: CONYUGE_ID, nombre: "Cónyuge Viudo/a" }] : [])].map(p => {
+                                      const isChecked = activo.asignarA.includes(p.id);
+                                      return (
+                                        <button
+                                          key={p.id}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            asignarActivo(activo.id, p.id);
+                                          }}
+                                          className={`
+                                            flex items-center gap-3 w-full px-2 py-2 rounded-lg text-left transition-colors
+                                            ${isChecked ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-600'}
+                                          `}
+                                        >
+                                          <div className={`
+                                            w-4 h-4 rounded border flex items-center justify-center transition-colors
+                                            ${isChecked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}
+                                          `}>
+                                            {isChecked && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                                          </div>
+                                          <span className="text-xs font-medium truncate">{p.nombre}</span>
+                                        </button>
+                                      );
+                                    })}
+                                    
+                                    {activo.asignarA.length > 0 && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setActivos(activos.map(a => a.id === activo.id ? { ...a, asignarA: [] } : a));
+                                        }}
+                                        className="w-full text-center py-1 mt-1 text-[11px] text-slate-400 hover:text-slate-600 font-bold uppercase tracking-wider border-t border-slate-100 pt-2"
+                                      >
+                                        Limpiar selección
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                          
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setNotasAbiertas(notasAbierta ? null : activo.id);
+                            }}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-colors text-[11px] font-bold ${
+                              activo.notas ? 'bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100' : 'bg-slate-50 text-slate-500 border-slate-100 hover:bg-slate-100'
+                            }`}
+                            title="Anotaciones"
+                          >
+                            <StickyNote className="w-3.5 h-3.5" />
+                            NOTAS
+                          </button>
+                       </div>
+                       
+                       <div className="flex flex-col items-start sm:items-end min-w-[140px] whitespace-nowrap shrink-0 mt-2 sm:mt-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 w-full sm:w-auto">
+                         <span className="text-[11px] uppercase font-bold text-slate-400 tracking-wider">Valor total</span>
+                         <span className="text-lg md:text-xl font-black text-indigo-600">
+                           {formatCurrency(activo.sub_partidas.reduce((acc: number, sub: any) => acc + (sub.cantidad * sub.valor_unitario), 0))}
+                         </span>
+                       </div>
                     </div>
                   </div>
                   
@@ -1126,11 +1129,11 @@ export default function Page() {
                         
                         <div className="space-y-4 md:space-y-2 mt-2">
                           {activo.sub_partidas.map(sub => (
-                            <div key={sub.id} className={`grid grid-cols-1 md:grid-cols-12 items-start md:items-center gap-2 md:gap-4 hover:bg-slate-50 p-3 md:p-2 rounded-lg transition-colors group border border-slate-100 md:border-transparent ${sub.valor_unitario < 0 ? 'highlight-carga' : ''}`}>
+                            <div key={sub.id} className={`grid grid-cols-1 sm:grid-cols-6 md:grid-cols-12 items-start md:items-center gap-2 md:gap-4 hover:bg-slate-50 p-3 md:p-2 rounded-lg transition-colors group border border-slate-100 md:border-transparent ${sub.valor_unitario < 0 ? 'highlight-carga' : ''}`}>
                               
                               {/* Concepto */}
-                              <div className={`col-span-1 ${isFixed ? 'md:col-span-8' : 'md:col-span-4'} w-full`}>
-                                <span className="md:hidden text-[10px] font-bold text-indigo-400 uppercase mb-1 block">Concepto</span>
+                              <div className={`col-span-1 sm:col-span-6 ${isFixed ? 'md:col-span-8' : 'md:col-span-4'} w-full`}>
+                                <span className="md:hidden text-[11px] font-bold text-indigo-400 uppercase mb-1 block">Concepto</span>
                                 <input 
                                   value={sub.concepto}
                                   onChange={(e) => actualizarSubpartida(activo.id, sub.id, 'concepto', e.target.value)}
@@ -1139,12 +1142,12 @@ export default function Page() {
                                 />
                               </div>
 
-                              <div className={`col-span-1 ${isFixed ? 'md:col-span-4' : 'md:col-span-8'} grid ${isFixed ? 'grid-cols-1 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-8'} gap-4 w-full`}>
+                              <div className={`col-span-1 sm:col-span-6 ${isFixed ? 'md:col-span-4' : 'md:col-span-8'} grid ${isFixed ? 'grid-cols-1 md:grid-cols-4' : 'grid-cols-2 sm:grid-cols-4 md:grid-cols-8'} gap-4 w-full`}>
                                   {!isFixed && (
                                     <>
                                       {/* Cantidad */}
                                       <div className="col-span-1 md:col-span-2">
-                                        <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block">Cantidad</span>
+                                        <span className="md:hidden text-[11px] font-bold text-slate-400 uppercase mb-1 block">Cantidad</span>
                                         <FormattedNumberInput 
                                           value={sub.cantidad || 0}
                                           onChange={(val) => actualizarSubpartida(activo.id, sub.id, 'cantidad', val)}
@@ -1154,7 +1157,7 @@ export default function Page() {
 
                                       {/* Unidad Selector */}
                                       <div className="col-span-1 md:col-span-2">
-                                        <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block">Unidad</span>
+                                        <span className="md:hidden text-[11px] font-bold text-slate-400 uppercase mb-1 block">Unidad</span>
                                         <select 
                                           value={sub.unidad}
                                           onChange={(e) => actualizarSubpartida(activo.id, sub.id, 'unidad', e.target.value)}
@@ -1171,7 +1174,7 @@ export default function Page() {
 
                                   {/* Valor Unitario / Importe */}
                                   <div className={`col-span-1 ${isFixed ? 'md:col-span-2' : 'md:col-span-2'} relative flex flex-col md:flex-row items-start md:items-center justify-end`}>
-                                    <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block w-full">{isFixed ? "Importe" : "Valor Unit."}</span>
+                                    <span className="md:hidden text-[11px] font-bold text-slate-400 uppercase mb-1 block w-full">{isFixed ? "Importe" : "Valor Unit."}</span>
                                     <div className="relative w-full">
                                         <FormattedNumberInput 
                                           value={sub.valor_unitario || 0}
@@ -1184,13 +1187,13 @@ export default function Page() {
                                           }}
                                           className="w-full text-left md:text-right bg-transparent border-b border-transparent focus:border-indigo-300 focus:outline-none text-sm font-medium text-indigo-600 pr-6"
                                         />
-                                        <span className="absolute right-0 top-0 text-[10px] text-slate-400 pointer-events-none mt-1">€</span>
+                                        <span className="absolute right-0 top-0 text-[11px] text-slate-400 pointer-events-none mt-1">€</span>
                                     </div>
                                   </div>
 
                                   {/* Total */}
                                   <div className={`col-span-1 ${isFixed ? 'md:col-span-2' : 'md:col-span-2'} flex flex-col md:flex-row items-end md:items-center justify-end gap-2`}>
-                                     <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase mb-1 block w-full text-right">Total</span>
+                                     <span className="md:hidden text-[11px] font-bold text-slate-400 uppercase mb-1 block w-full text-right">Total</span>
                                      <div className="text-sm font-bold text-slate-900 shrink-0">
                                        {formatCurrency(sub.cantidad * sub.valor_unitario)}
                                      </div>
@@ -1276,7 +1279,6 @@ export default function Page() {
         </div>
 
         {/* Right Column: Análisis */}
-        {/* Columna de Resultados */}
         <aside className="lg:col-span-5 space-y-6 results-column">
           
           {/* Main Stats Card */}
@@ -1323,7 +1325,7 @@ export default function Page() {
               <h3 className="font-bold text-slate-700 flex items-center gap-2">
                 <Coins className="w-5 h-5 text-amber-500" /> Estimación de Liquidez
               </h3>
-              <div className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest uppercase ${analisisLiquidez.balanceLiquidez >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+              <div className={`px-3 py-1 rounded-full text-[11px] font-black tracking-widest uppercase ${analisisLiquidez.balanceLiquidez >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
                 {analisisLiquidez.balanceLiquidez >= 0 ? 'Superávit' : 'Déficit'}
               </div>
             </div>
@@ -1335,8 +1337,8 @@ export default function Page() {
               </div>
               
               <div className="flex justify-between items-center text-sm pt-2 border-t border-slate-50">
-                <span className="text-slate-500">Gastos Estimados (CCAA {fiscalConfig.comunidadAutonoma?.toUpperCase()})</span>
-                <span className="font-bold text-slate-700">{formatCurrency(analisisLiquidez.gastosGenerales)}</span>
+                <span className="text-slate-500 font-medium truncate pr-2" title={`Gastos Estimados (CCAA ${fiscalConfig.comunidadAutonoma?.toUpperCase()})`}>Gastos CCAA {fiscalConfig.comunidadAutonoma?.toUpperCase()}</span>
+                <span className="font-bold text-slate-700 shrink-0">{formatCurrency(analisisLiquidez.gastosGenerales)}</span>
               </div>
               {analisisLiquidez.gastosActivos > 0 && (
                 <div className="flex justify-between items-center text-sm">
@@ -1392,7 +1394,7 @@ export default function Page() {
               <button 
                 onClick={sortearHerederos}
                 className="text-xs bg-indigo-50 text-indigo-600 font-bold px-3 py-1.5 rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-2"
-                title="Sorteo aleatorio de adjudicaciones"
+                title="Genera un reparto aleatorio automatizado de los activos no asignados entre los herederos"
               >
                 <Sparkles className="w-3.5 h-3.5" /> Sorteo
               </button>
@@ -1419,7 +1421,7 @@ export default function Page() {
                             value={lote.nombreHeredero}
                             onChange={(e) => updateNombreHeredero(lote.id, e.target.value)}
                             readOnly={esConyuge}
-                            className={`font-bold text-slate-800 bg-transparent border-none focus:outline-none rounded px-1 -ml-1 w-full max-w-[200px] ${esConyuge ? 'text-indigo-700 cursor-default' : 'hover:bg-slate-50'}`}
+                            className={`font-bold text-slate-800 bg-transparent border-none focus:outline-none rounded px-1 -ml-1 w-full flex-1 min-w-0 ${esConyuge ? 'text-indigo-700 cursor-default' : 'hover:bg-slate-50'}`}
                           />
                           {esConyuge && <span className="text-[9px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider">Titular Ganancial</span>}
                         </div>
@@ -1431,12 +1433,12 @@ export default function Page() {
                       <div className="space-y-4 mb-4">
                         {activosGananciales.length > 0 && (
                           <div className="space-y-2">
-                            <h4 className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest pl-1">Propiedad (Gananciales)</h4>
+                            <h4 className="text-[11px] font-bold text-indigo-400 uppercase tracking-widest pl-1">Propiedad (Gananciales)</h4>
                             {activosGananciales.map((act: any) => (
                               <div key={act.id} className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-indigo-100 group">
                                 <div className="flex flex-col">
                                   <span className="text-sm font-medium text-slate-700">{act.nombre}</span>
-                                  <span className="text-[10px] text-indigo-400 font-bold">50.0% (Privativo)</span>
+                                  <span className="text-[11px] text-indigo-400 font-bold">50.0% (Privativo)</span>
                                 </div>
                                 <span className="text-sm font-bold text-indigo-600">{formatCurrency(act.valor)}</span>
                               </div>
@@ -1445,7 +1447,7 @@ export default function Page() {
                         )}
 
                         <div className="space-y-2">
-                          {activosGananciales.length > 0 && <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Adjudicación (Herencia)</h4>}
+                          {activosGananciales.length > 0 && <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest pl-1">Adjudicación (Herencia)</h4>}
                           {activosHerencia.length === 0 && !activosGananciales.length && <p className="text-xs text-slate-400 italic text-center py-2">Sin bienes asignados</p>}
                           {activosHerencia.filter((a: any) => a.nombre !== 'Caja / Dinero en Efectivo').map((act: any) => (
                             <div key={act.id} className="flex justify-between items-center bg-slate-50/50 p-2.5 rounded-lg border border-slate-100 hover:bg-indigo-50/30 transition-colors group">
@@ -1457,10 +1459,10 @@ export default function Page() {
                                       <Sparkles className="w-3 h-3 text-amber-400" />
                                     </div>
                                   )}
-                                  {act.virtual && <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-bold">Donación en vida</span>}
+                                  {act.virtual && <span className="text-[11px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-bold">Donación en vida</span>}
                                 </div>
                                   <span className="percentage-badge w-fit mt-1">
-                                    {((act.valor / (totalActivos.find(a => a.nombre === act.nombre)?.valorTotal || 1)) * 100).toFixed(1)}% de la propiedad del bien
+                                    {((act.valor / (totalActivos.find(a => a.nombre === act.nombre)?.valorTotal || 1)) * 100).toFixed(1)}% propiedad
                                   </span>
                               </div>
                               <span className="text-sm font-bold text-slate-600 group-hover:text-indigo-700 transition-colors">
@@ -1519,7 +1521,7 @@ export default function Page() {
 
                         return (
                           <div className="pt-3 border-t border-slate-50 flex justify-between items-center">
-                            <span className="text-[10px] font-bold text-slate-300 uppercase">Equilibrio</span>
+                            <span className="text-[11px] font-bold text-slate-300 uppercase">Equilibrio</span>
                             <span className={`text-xs font-bold ${diferencia >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                               {diferencia >= 0 ? '+' : ''}
                               {formatCurrency(diferencia)}
@@ -1528,15 +1530,6 @@ export default function Page() {
                         );
                       })()}
                       
-                      {/* CUOTA INDIVIDUAL BOX */}
-                      {!esConyuge && (
-                        <div className="mt-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
-                          <div className="flex justify-between items-center">
-                            <span className="text-xs font-bold text-indigo-600 uppercase">Cuota Individual</span>
-                            <span className="text-sm font-black text-indigo-700">{formatCurrency(caudalRelicto / numHerederos)}</span>
-                          </div>
-                        </div>
-                      )}
                     </div>
                   );
                 });

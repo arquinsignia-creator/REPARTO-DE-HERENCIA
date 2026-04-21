@@ -74,8 +74,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, confi
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-slate-800 uppercase text-xs tracking-widest text-indigo-500">Estimación de Gastos de Adjudicación</h3>
             </div>
-            
-            <div className="grid grid-cols-2 gap-4 bg-indigo-50/30 p-4 rounded-xl border border-indigo-100/50">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-indigo-50/30 p-4 rounded-xl border border-indigo-100/50">
               <div>
                 <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">CCAA Residencia Fallecido</label>
                 <select 
@@ -148,7 +147,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, confi
                   onChange={(e) => setLocalConfig({...localConfig, gananciales: e.target.checked})}
                   className="sr-only peer" 
                 />
-                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:width-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
               </label>
             </div>
             <p className="text-xs text-slate-500 italic">
@@ -177,13 +176,13 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, confi
                   onChange={(e) => setLocalConfig({...localConfig, usufructo: {...localConfig.usufructo, enabled: e.target.checked}})}
                   className="sr-only peer" 
                 />
-                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:width-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
               </label>
             </div>
             
             {localConfig.usufructo.enabled && (
-              <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100 animate-fade-in">
-                <div className="flex-1">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100 animate-fade-in">
+                <div className="flex-1 w-full">
                   <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Edad del Cónyuge</label>
                   <input 
                     type="number" 
@@ -290,8 +289,8 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, confi
               </div>
             </div>
             
-            <div className="flex items-center gap-4 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
-              <div className="flex-1">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+              <div className="flex-1 w-full">
                 <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Porcentaje de Margen (%)</label>
                 <div className="relative">
                   <input 
