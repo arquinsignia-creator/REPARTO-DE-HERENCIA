@@ -333,7 +333,7 @@ export class PdfGenerator {
             const expensePerHeir = data.liquidez.totalGastosEstimados / (data.config.numHerederos || 1);
             
             // Find compensation for this heir
-            const compensacion = data.reparto.compensaciones.find(c => c.heredero === lote.id);
+            const compensacion = data.reparto.compensaciones.find(c => c.heredero === lote.idHeredero);
             const compensacionAmount = compensacion ? compensacion.diferencia : 0;
             
             const netLiquidity = cashAssigned - expensePerHeir + compensacionAmount;

@@ -20,16 +20,21 @@ import {
   Save,
   CheckCircle2,
   Copy,
-  HelpCircle
+  HelpCircle,
+  Lock,
+  Unlock,
+  StickyNote,
+  X
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PdfGenerator } from '../utils/PdfGenerator';
 import { PasswordModal } from '../components/PasswordModal';
+import { calcularReparto, CONYUGE_ID } from '../engine/partitionEngine';
 import { ConfigModal } from '../components/ConfigModal';
 import bcrypt from 'bcryptjs';
 
 // --- Constantes y Ayudantes ---
-const CONYUGE_ID = 999;
+// CONYUGE_ID importado desde engine/partitionEngine.ts
 
 // --- Componente de Input Numérico Formateado (Miles y Decimales) ---
 const FormattedNumberInput = ({ value, onChange, className, placeholder }: { value: number, onChange: (val: number) => void, className?: string, placeholder?: string }) => {
@@ -102,6 +107,11 @@ export default function Page() {
   const numHerederos = herederos.length;
   const [moneda, setMoneda] = useState('EUR');
   const [inheritanceTitle, setInheritanceTitle] = useState("Familia Martínez Molina");
+  const [datosLocked, setDatosLocked] = useState(false);
+  const [notasAbiertas, setNotasAbiertas] = useState<string | null>(null);
+  const [isPasswordVerified, setIsPasswordVerified] = useState(false);
+  const [pendingUnlock, setPendingUnlock] = useState(false);
+
   const [activos, setActivos] = useState([
     {
       id: 'cash',
@@ -113,7 +123,8 @@ export default function Page() {
       sub_partidas: [
         { id: 'scash', concepto: "Efectivo y Bancos", cantidad: 1, unidad: "€", valor_unitario: 0 }
       ],
-      gastosEspeciales: 0
+      gastosEspeciales: 0,
+      notas: ''
     },
     {
       id: '1',
@@ -126,7 +137,8 @@ export default function Page() {
         { id: 's2', concepto: "Cultivo Almendro", cantidad: 5000, unidad: "m2", valor_unitario: 12 },
         { id: 's3', concepto: "Casa de campo", cantidad: 200, unidad: "m2", valor_unitario: 400 }
       ],
-      gastosEspeciales: 0
+      gastosEspeciales: 0,
+      notas: ''
     },
     {
       id: '2',
@@ -138,7 +150,8 @@ export default function Page() {
         { id: 's4', concepto: "Almendro Secano", cantidad: 400000, unidad: "m2", valor_unitario: 12 },
         { id: 's5', concepto: "Barbecho", cantidad: 100000, unidad: "m2", valor_unitario: 5 }
       ],
-      gastosEspeciales: 0
+      gastosEspeciales: 0,
+      notas: ''
     },
     {
       id: '3',
@@ -149,7 +162,8 @@ export default function Page() {
       sub_partidas: [
         { id: 's6', concepto: "Superficie", cantidad: 150, unidad: "m2", valor_unitario: 800 }
       ],
-      gastosEspeciales: 0
+      gastosEspeciales: 0,
+      notas: ''
     }
   ]);
 
@@ -283,292 +297,11 @@ export default function Page() {
   }, [totalActivos, fiscalConfig]);
 
   const reparto = useMemo(() => {
-    // FUNCIÓN DE CÁLCULO DE ESCENARIO ÚNICO
-    const calcularEscenario = (activosOrdenados: any[]) => {
-      let lotes = herederos.map(h => ({
-        id: h.id,
-        idHeredero: h.id,
-        nombreHeredero: h.nombre,
-        activos: [] as any[],
-        valorBienes: 0
-      }));
-
-      if (fiscalConfig.gananciales) {
-        lotes.push({
-          id: CONYUGE_ID,
-          idHeredero: CONYUGE_ID,
-          nombreHeredero: "Cónyuge Viudo/a",
-          activos: [] as any[],
-          valorBienes: 0
-        });
-      }
-
-      // 1. Gananciales (50% al cónyuge)
-      if (fiscalConfig.gananciales) {
-        const loteConyuge = lotes.find(l => l.idHeredero === CONYUGE_ID);
-        if (loteConyuge) {
-          activosOrdenados.forEach(activo => {
-            if (activo.esGanancial !== false) {
-              const valorGanancial = activo.valorTotal * 0.5;
-              loteConyuge.activos.push({
-                id: "gan_" + activo.id,
-                nombre: activo.nombre,
-                valor: valorGanancial,
-                fraccion: 0.5,
-                tipo: 'gananciales'
-              });
-              loteConyuge.valorBienes += valorGanancial;
-            }
-          });
-        }
-      }
-
-      // 2. Asignaciones Manuales
-      const asignados = activosOrdenados.filter(a => a.asignarA && a.asignarA.length > 0);
-      asignados.forEach(activo => {
-        const numParticipantes = activo.asignarA.length;
-        const factorMasa = (fiscalConfig.gananciales && activo.esGanancial !== false) ? 0.5 : 1;
-        const valorPorHeredero = (activo.valorTotal * factorMasa) / numParticipantes;
-        
-        activo.asignarA.forEach((hId: number) => {
-          const lote = lotes.find(l => l.idHeredero === hId);
-          if (lote) {
-            lote.activos.push({ 
-              id: activo.id + "_" + hId, 
-              nombre: activo.nombre, 
-              valor: valorPorHeredero, 
-              fraccion: factorMasa / numParticipantes, 
-              manual: true,
-              tipo: 'herencia'
-            });
-            lote.valorBienes += valorPorHeredero;
-          }
-        });
-      });
-
-      // 3. Donaciones (Colación)
-      fiscalConfig.colacion.forEach((donacion: any) => {
-        if (donacion.herederoId) {
-          const lote = lotes.find(l => l.idHeredero === donacion.herederoId);
-          if (lote) {
-            lote.activos.push({
-              id: "don_" + donacion.id,
-              nombre: donacion.concepto,
-              valor: donacion.valor,
-              fraccion: 1,
-              virtual: true
-            });
-            lote.valorBienes += donacion.valor;
-          }
-        }
-      });
-
-      // 4. Consolidación Cónyuge (si hay déficit)
-      if (fiscalConfig.gananciales) {
-        const loteConyuge = lotes.find(l => l.idHeredero === CONYUGE_ID);
-        if (loteConyuge) {
-          const candidatosCol = activosOrdenados
-            .filter(a => a.asignarA.length === 0 && a.esGanancial !== false)
-            .sort((a, b) => a.valorTotal - b.valorTotal);
-          
-          for (const activo of candidatosCol) {
-            const totalPropiedad = loteConyuge.activos.filter(a => a.tipo === 'gananciales').reduce((s, a) => s + a.valor, 0);
-            const deficit = cuotaIdeal - (loteConyuge.valorBienes - totalPropiedad);
-            if (deficit <= 0.01) break;
-
-            const valorHeredable = activo.valorTotal * 0.5;
-            const aAsignar = Math.min(deficit, valorHeredable);
-            
-            loteConyuge.activos.push({
-              id: activo.id + "_consol",
-              nombre: activo.nombre,
-              valor: aAsignar,
-              fraccion: aAsignar / activo.valorTotal,
-              tipo: 'herencia'
-            });
-            loteConyuge.valorBienes += aAsignar;
-            activo.yaConsolidado = (aAsignar >= valorHeredable - 0.01);
-            if (!activo.yaConsolidado) activo.valorHeredableRestante = valorHeredable - aAsignar;
-          }
-        }
-      }
-
-      // 5. REPARTO AUTOMÁTICO DE ACTIVOS FÍSICOS (Greedy con Margen de Tolerancia)
-      const margenEuros = cuotaIdeal * (fiscalConfig.margenTolerancia / 100);
-      
-      const pendientes = activosOrdenados.filter(a => 
-        a.id !== 'cash' && a.asignarA.length === 0 && !a.yaConsolidado
-      );
-
-      pendientes.forEach(activo => {
-        const factorMasa = (fiscalConfig.gananciales && activo.esGanancial !== false) ? 0.5 : 1;
-        let valorHeredable = activo.valorHeredableRestante !== undefined ? activo.valorHeredableRestante : (activo.valorTotal * factorMasa);
-
-        if (valorHeredable <= 0.01) return;
-
-        // Regla: ¿Cabe en alguien con el margen de tolerancia?
-        const candidatos = lotes
-          .filter(l => l.valorBienes + valorHeredable <= cuotaIdeal + margenEuros + 0.01)
-          .sort((a, b) => a.valorBienes - b.valorBienes);
-
-        if (candidatos.length > 0) {
-          // Se lo damos al que menos tenga de los que "caben"
-          const lote = candidatos[0];
-          lote.activos.push({ 
-            id: activo.id, 
-            nombre: activo.nombre, 
-            valor: valorHeredable, 
-            fraccion: valorHeredable / activo.valorTotal, 
-            tipo: 'herencia' 
-          });
-          lote.valorBienes += valorHeredable;
-        } else {
-          // Si es indivisible, forzar adjudicación al que menos tenga para evitar proindiviso
-          if (!activo.divisible) {
-            const lote = [...lotes].sort((a, b) => a.valorBienes - b.valorBienes)[0];
-            lote.activos.push({ id: activo.id, nombre: activo.nombre, valor: valorHeredable, fraccion: valorHeredable / activo.valorTotal, tipo: 'herencia' });
-            lote.valorBienes += valorHeredable;
-          } else {
-            // Si es divisible y no cabe en nadie, repartir entre los que tienen déficit
-            let restante = valorHeredable;
-            while (restante > 0.01) {
-              const conDeficit = lotes.filter(l => l.valorBienes < cuotaIdeal - 0.01);
-              if (conDeficit.length === 0) {
-                const aCadaUno = restante / lotes.length;
-                lotes.forEach(l => {
-                  l.activos.push({ id: `${activo.id}_sob_${l.id}`, nombre: activo.nombre, valor: aCadaUno, fraccion: aCadaUno / activo.valorTotal, tipo: 'herencia' });
-                  l.valorBienes += aCadaUno;
-                });
-                restante = 0;
-              } else {
-                const deficitTotal = conDeficit.reduce((acc, l) => acc + (cuotaIdeal - l.valorBienes), 0);
-                const aRepartirAhora = Math.min(restante, deficitTotal);
-                conDeficit.forEach(l => {
-                  const miParte = ((cuotaIdeal - l.valorBienes) / deficitTotal) * aRepartirAhora;
-                  if (miParte > 0.01) {
-                    l.activos.push({ id: `${activo.id}_bal_${l.id}`, nombre: activo.nombre, valor: miParte, fraccion: miParte / activo.valorTotal, tipo: 'herencia' });
-                    l.valorBienes += miParte;
-                  }
-                });
-                restante -= aRepartirAhora;
-              }
-            }
-          }
-        }
-      });
-
-      // 6. BUFFER DE CAJA
-      const activoCash = totalActivos.find(a => a.id === 'cash');
-      if (activoCash && activoCash.asignarA.length === 0) {
-        const factorMasa = (fiscalConfig.gananciales && activoCash.esGanancial !== false) ? 0.5 : 1;
-        let cashRestante = activoCash.valorTotal * factorMasa;
-        const conDeficit = lotes.filter(l => l.valorBienes < cuotaIdeal - 0.01);
-        
-        if (conDeficit.length > 0 && cashRestante > 0) {
-          const deficitTotal = conDeficit.reduce((acc, l) => acc + (cuotaIdeal - l.valorBienes), 0);
-          const aRepartir = Math.min(cashRestante, deficitTotal);
-          conDeficit.forEach(lote => {
-            const miParte = ((cuotaIdeal - lote.valorBienes) / deficitTotal) * aRepartir;
-            if (miParte > 0.01) {
-              lote.activos.push({ id: `cash_${lote.id}`, nombre: activoCash.nombre, valor: miParte, fraccion: miParte / activoCash.valorTotal, tipo: 'herencia' });
-              lote.valorBienes += miParte;
-            }
-          });
-          cashRestante -= aRepartir;
-        }
-        if (cashRestante > 0.01) {
-          const aCadaUno = cashRestante / lotes.length;
-          lotes.forEach(l => {
-            l.activos.push({ id: `cash_extra_${l.id}`, nombre: activoCash.nombre, valor: aCadaUno, fraccion: aCadaUno / activoCash.valorTotal, tipo: 'herencia' });
-            l.valorBienes += aCadaUno;
-          });
-        }
-      }
-
-      // 7. Unificación de Activos
-      lotes.forEach(lote => {
-        const unificados: any[] = [];
-        lote.activos.forEach(act => {
-          const existente = unificados.find(u => u.nombre === act.nombre && u.tipo === act.tipo);
-          if (existente && !act.virtual) {
-            existente.valor += act.valor;
-            existente.fraccion += act.fraccion;
-            if (act.manual) existente.manual = true;
-          } else {
-            unificados.push({ ...act });
-          }
-        });
-        lote.activos = unificados;
-      });
-
-      return lotes;
-    };
-
-    // FUNCIÓN DE PUNTUACIÓN (SCORING)
-    const calcularCosteSolucion = (lotes: any[]) => {
-      let coste = 0;
-      const nombresActivos = new Set(totalActivos.map(a => a.nombre));
-
-      nombresActivos.forEach(nombre => {
-        const comparticiones = lotes.filter(l => l.activos.some((a: any) => a.nombre === nombre && a.tipo === 'herencia')).length;
-        if (comparticiones > 1) coste += comparticiones * 10; // Penalizar proindivisos
-      });
-
-      lotes.forEach(lote => {
-        const valorGananciales = lote.activos.filter((a: any) => a.tipo === 'gananciales').reduce((sum: number, a: any) => sum + a.valor, 0);
-        const totalHerencia = lote.valorBienes - valorGananciales;
-        const desviacion = Math.abs(cuotaIdeal - totalHerencia);
-        coste += desviacion * 0.1; // Cada euro de desviación suma coste
-        if (desviacion > 1) coste += 5; // Penalización fija por necesitar compensación sustancial
-      });
-
-      return coste;
-    };
-
-    // GENERAR MÚLTIPLES ESCENARIOS Y ELEGIR EL MEJOR
-    let mejorEscenario: any[] = [];
-    let menorCoste = Infinity;
-
-    // Escenario 1: Orden por valor descendente (original)
-    const ordenDesc = [...totalActivos].sort((a, b) => b.valorTotal - a.valorTotal);
-    const sol1 = calcularEscenario(ordenDesc.map(a => ({ ...a })));
-    const coste1 = calcularCosteSolucion(sol1);
-    mejorEscenario = sol1;
-    menorCoste = coste1;
-
-    // Esceneario 2: Orden por valor ascendente
-    const ordenAsc = [...totalActivos].sort((a, b) => a.valorTotal - b.valorTotal);
-    const sol2 = calcularEscenario(ordenAsc.map(a => ({ ...a })));
-    const coste2 = calcularCosteSolucion(sol2);
-    if (coste2 < menorCoste) { mejorEscenario = sol2; menorCoste = coste2; }
-
-    // Otros Escenarios (Barajados aleatorios si hay complejidad)
-    if (totalActivos.length > 3) {
-      for (let i = 0; i < 8; i++) {
-        const ordenAzar = [...totalActivos].sort(() => Math.random() - 0.5);
-        const sol = calcularEscenario(ordenAzar.map(a => ({ ...a })));
-        const coste = calcularCosteSolucion(sol);
-        if (coste < menorCoste) {
-          mejorEscenario = sol;
-          menorCoste = coste;
-        }
-      }
-    }
-
-    // 8. Calcular compensaciones finales del mejor escenario
-    const compensaciones = mejorEscenario.map(lote => {
-      const valorGananciales = lote.activos.filter((a: any) => a.tipo === 'gananciales').reduce((sum: number, a: any) => sum + a.valor, 0);
-      const totalHerenciaRecibida = lote.valorBienes - valorGananciales;
-      return {
-        idHeredero: lote.idHeredero,
-        heredero: lote.idHeredero,
-        nombreHeredero: lote.nombreHeredero,
-        diferencia: cuotaIdeal - totalHerenciaRecibida
-      };
-    });
-
-    return { lotes: mejorEscenario.sort((a, b) => a.idHeredero - b.idHeredero), compensaciones };
-  }, [totalActivos, herederos, cuotaIdeal, fiscalConfig]);
+    // Motor de partición extraído a módulo independiente.
+    // Incluye: exploración determinista (20 escenarios), scoring cuadrático,
+    // exclusión de cónyuge del reparto automático y validación de invariantes.
+    return calcularReparto(totalActivos, herederos, cuotaIdeal, fiscalConfig, caudalRelicto);
+  }, [totalActivos, herederos, cuotaIdeal, fiscalConfig, caudalRelicto]);
 
   /* 
    * LÓGICA DE REPARTO
@@ -587,7 +320,8 @@ export default function Page() {
       esGanancial: true,
       asignarA: [], 
       sub_partidas: [{ id: Date.now().toString(), concepto: "Concepto inicial", cantidad: 1, unidad: "ud", valor_unitario: 0 }],
-      gastosEspeciales: 0
+      gastosEspeciales: 0,
+      notas: ''
     }]);
     setExpandedAssets(prev => [...prev, nextId]);
   };
@@ -703,7 +437,10 @@ export default function Page() {
       lineas.push("Se ha procedido a la liquidación previa de la sociedad de gananciales, deduciendo el 50% de la masa común a favor del cónyuge supérstite antes de determinar el caudal relicto hereditario.");
     }
 
-    lineas.push(`Se ha analizado un caudal relicto total de ${formatCurrency(caudalRelicto)} a repartir entre ${numHerederos} herederos, resultando en una cuota ideal de ${formatCurrency(cuotaIdeal)} por partícipe.`);
+    const textoParticipes = fiscalConfig.gananciales 
+      ? `${numHerederos} herederos + cónyuge viudo/a (${numHerederosEfectivos} partícipes)` 
+      : `${numHerederos} herederos`;
+    lineas.push(`Se ha analizado un caudal relicto total de ${formatCurrency(caudalRelicto)} a repartir entre ${textoParticipes}, resultando en una cuota ideal de ${formatCurrency(cuotaIdeal)} por partícipe.`);
 
     if (fiscalConfig.colacion.length > 0) {
       const totalCol = fiscalConfig.colacion.reduce((a, b) => a + b.valor, 0);
@@ -821,8 +558,44 @@ export default function Page() {
       setShowPasswordModal(false);
       ejecutarGeneracionConPassword(password);
     } else {
-      // Modo: Verificar contraseña al cargar sesión
-      if (!password || !pendingSessionCode) {
+      // Modo: Verificar contraseña (cargar sesión O desbloquear datos)
+      if (!password) {
+        setPasswordError('Por favor ingrese una contraseña');
+        return;
+      }
+
+      // Si es un unlock pendiente, verificar contra el hash guardado en Supabase
+      if (pendingUnlock && sessionCode) {
+        try {
+          const { data, error } = await supabase
+            .from('sessions')
+            .select('password_hash')
+            .eq('code', sessionCode)
+            .single();
+
+          if (error) throw error;
+
+          if (data && data.password_hash) {
+            const isValid = await verifyPassword(password, data.password_hash);
+            if (isValid) {
+              setIsPasswordVerified(true);
+              setDatosLocked(false);
+              setShowPasswordModal(false);
+              setPasswordError('');
+              setPendingUnlock(false);
+            } else {
+              setPasswordError('Contraseña incorrecta. Inténtelo de nuevo.');
+            }
+          }
+        } catch (err) {
+          console.error("Error verifying password for unlock:", err);
+          setPasswordError('Error al verificar contraseña');
+        }
+        return;
+      }
+
+      // Flujo normal: verificar para cargar sesión
+      if (!pendingSessionCode) {
         setPasswordError('Por favor ingrese una contraseña');
         return;
       }
@@ -848,6 +621,9 @@ export default function Page() {
             if (data.data.fiscalConfig) {
               setFiscalConfig(data.data.fiscalConfig);
             }
+            // Restaurar lock state (default true para sesiones protegidas)
+            setDatosLocked(data.data.datosLocked !== undefined ? data.data.datosLocked : true);
+            setIsPasswordVerified(true);
             setSessionCode(data.code);
             setSessionLoadInput("");
             setAnalisisIA("");
@@ -859,7 +635,6 @@ export default function Page() {
             setPasswordError('Contraseña incorrecta. Inténtelo de nuevo.');
           }
         } else {
-          // No debería llegar aquí, pero por si acaso
           setPasswordError('Error al verificar contraseña');
         }
       } catch (err) {
@@ -874,6 +649,7 @@ export default function Page() {
     setPasswordError('');
     setPendingPassword(null);
     setPendingSessionCode(null);
+    setPendingUnlock(false);
     setIsAnalizando(false);
   };
 
@@ -906,7 +682,8 @@ export default function Page() {
         moneda,
         inheritanceTitle,
         fiscalConfig,
-        version: 1
+        datosLocked,
+        version: 2
       };
 
       // Preparar payload de Supabase
@@ -971,6 +748,9 @@ export default function Page() {
           if (data.data.fiscalConfig) {
             setFiscalConfig(data.data.fiscalConfig);
           }
+          // Restaurar lock state guardado
+          setDatosLocked(data.data.datosLocked || false);
+          setIsPasswordVerified(false);
           setSessionCode(data.code);
           setSessionLoadInput("");
           setAnalisisIA(""); // Reset analisis anterior
@@ -1133,32 +913,40 @@ export default function Page() {
 
           <div className="space-y-6">
             {activos.map((activo) => {
-              const isExpanded = expandedAssets.includes(activo.id);
+              const isExpanded = datosLocked ? false : expandedAssets.includes(activo.id);
               const isFixed = (activo as any).isFixed;
+              const notasAbierta = notasAbiertas === activo.id;
 
               return (
-                <div key={activo.id} className={`rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-300 ${isFixed ? 'bg-blue-50/40' : 'bg-white'}`}>
+                <div key={activo.id} className={`rounded-xl border shadow-sm transition-all duration-300 relative ${isFixed ? 'bg-blue-50/40' : 'bg-white'} ${datosLocked ? 'border-amber-200/60' : 'border-slate-200'}`}>
                   {/* Asset Header - Clickable for Accordion */}
                   <div 
-                    onClick={() => toggleAssetExpansion(activo.id)}
-                    className={`p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 gap-4 cursor-pointer hover:bg-slate-50/50 transition-colors ${!isExpanded ? 'border-b-transparent' : ''}`}
+                    onClick={() => { if (!datosLocked) toggleAssetExpansion(activo.id); }}
+                    className={`p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 gap-4 ${datosLocked ? 'cursor-default' : 'cursor-pointer hover:bg-slate-50/50'} transition-colors ${!isExpanded ? 'border-b-transparent' : ''}`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3 md:gap-4 flex-1 w-full">
                       <div className="flex items-center justify-between w-full md:w-auto gap-2">
                         <div className="flex items-center gap-2">
-                          <div className={`p-1.5 rounded-lg transition-colors ${isExpanded ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-50 text-slate-400'}`}>
-                            <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isExpanded ? '' : '-rotate-90'}`} />
-                          </div>
+                          {!datosLocked && (
+                            <div className={`p-1.5 rounded-lg transition-colors ${isExpanded ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-50 text-slate-400'}`}>
+                              <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isExpanded ? '' : '-rotate-90'}`} />
+                            </div>
+                          )}
+                          {datosLocked && (
+                            <div className="p-1.5 rounded-lg bg-amber-50 text-amber-500">
+                              <Lock className="w-4 h-4" />
+                            </div>
+                          )}
                           <input 
                             type="text" 
                             value={activo.nombre}
-                            onClick={(e) => e.stopPropagation()} // Prevent expansion when renaming
+                            onClick={(e) => e.stopPropagation()}
                             onChange={(e) => {
-                              if (isFixed) return;
+                              if (isFixed || datosLocked) return;
                               setActivos(activos.map(a => a.id === activo.id ? {...a, nombre: e.target.value} : a));
                             }}
-                            readOnly={isFixed}
-                            className={`text-lg md:text-xl font-extrabold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 p-0 flex-1 md:min-w-[300px] truncate ${ isFixed ? 'select-none cursor-default' : '' }`}
+                            readOnly={isFixed || datosLocked}
+                            className={`text-lg md:text-xl font-extrabold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 p-0 flex-1 md:min-w-[300px] truncate ${ (isFixed || datosLocked) ? 'select-none cursor-default' : '' }`}
                             placeholder="Nombre del activo..."
                           />
                         </div>
@@ -1272,7 +1060,7 @@ export default function Page() {
                           {formatCurrency(activo.sub_partidas.reduce((acc: number, sub: any) => acc + (sub.cantidad * sub.valor_unitario), 0))}
                         </span>
                       </div>
-                      {!isFixed && (
+                      {!isFixed && !datosLocked && (
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1283,9 +1071,43 @@ export default function Page() {
                           <Trash2 className="w-5 h-5" />
                         </button>
                       )}
+                      {/* Notes Button */}
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setNotasAbiertas(notasAbierta ? null : activo.id);
+                        }}
+                        className={`flex items-center justify-center w-10 h-10 rounded-xl transition-colors shadow-sm shrink-0 ${
+                          activo.notas ? 'bg-amber-50 text-amber-600 hover:bg-amber-100 ring-1 ring-amber-200' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'
+                        }`}
+                        title="Notas y referencias"
+                      >
+                        <StickyNote className="w-5 h-5" />
+                      </button>
                     </div>
                   </div>
                   
+                  {/* Notes Popover */}
+                  {notasAbierta && (
+                    <div className="mx-4 mb-4 mt-2 p-4 bg-amber-50/60 border border-amber-200 rounded-xl animate-in slide-in-from-top-2 duration-200" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-xs font-bold text-amber-700 uppercase tracking-wider flex items-center gap-1.5">
+                          <StickyNote className="w-3.5 h-3.5" /> Notas y Referencias
+                        </h4>
+                        <button onClick={() => setNotasAbiertas(null)} className="text-amber-400 hover:text-amber-600 transition-colors">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <textarea 
+                        value={activo.notas || ''}
+                        onChange={(e) => setActivos(activos.map(a => a.id === activo.id ? { ...a, notas: e.target.value } : a))}
+                        placeholder="Ref. catastral, notas del tasador, ubicación exacta, cargas registrales..."
+                        className="w-full bg-white border border-amber-200 rounded-lg p-3 text-sm text-slate-700 placeholder:text-amber-300 focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none resize-y min-h-[80px]"
+                        rows={3}
+                      />
+                    </div>
+                  )}
+
                   {/* Expanded Content (Details) */}
                   {isExpanded && (
                     <div className="p-5 animate-in slide-in-from-top-2 duration-300 ease-out fill-mode-forwards">
@@ -1442,12 +1264,14 @@ export default function Page() {
             })}
 
             {/* Main Add Asset Button at the bottom */}
-            <button 
-              onClick={agregarActivo}
-              className="w-full py-4 border-2 border-dashed border-slate-300 rounded-xl text-slate-400 font-bold hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all flex items-center justify-center gap-2"
-            >
-              <Plus className="w-6 h-6" /> Añadir Nuevo Activo al Inventario
-            </button>
+            {!datosLocked && (
+              <button 
+                onClick={agregarActivo}
+                className="w-full py-4 border-2 border-dashed border-slate-300 rounded-xl text-slate-400 font-bold hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all flex items-center justify-center gap-2"
+              >
+                <Plus className="w-6 h-6" /> Añadir Nuevo Activo al Inventario
+              </button>
+            )}
           </div>
         </div>
 
@@ -1738,6 +1562,18 @@ export default function Page() {
         herederos={herederos}
         onClose={() => setShowConfigModal(false)}
         onSave={(newConfig) => setFiscalConfig(newConfig)}
+        datosLocked={datosLocked}
+        onToggleLock={(locked) => {
+          if (!locked && isSessionProtected && !isPasswordVerified) {
+            // Quiere desbloquear una sesión protegida sin haber verificado
+            setPendingUnlock(true);
+            setPasswordModalMode('verify');
+            setPasswordError('');
+            setShowPasswordModal(true);
+          } else {
+            setDatosLocked(locked);
+          }
+        }}
       />
     </div>
   );

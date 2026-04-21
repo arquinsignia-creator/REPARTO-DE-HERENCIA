@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { X, HelpCircle, Plus, Trash2, Scale } from 'lucide-react';
+import { X, HelpCircle, Plus, Trash2, Scale, Lock, Unlock } from 'lucide-react';
 
 interface Config {
   gananciales: boolean;
@@ -22,9 +22,11 @@ interface ConfigModalProps {
   config: Config;
   herederos: { id: number; nombre: string }[];
   onSave: (newConfig: Config) => void;
+  datosLocked?: boolean;
+  onToggleLock?: (locked: boolean) => void;
 }
 
-export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, config, herederos, onSave }) => {
+export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, config, herederos, onSave, datosLocked = false, onToggleLock }) => {
   const [localConfig, setLocalConfig] = useState<Config>(config);
 
   if (!isOpen) return null;
@@ -312,6 +314,46 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, confi
 
           <hr className="border-slate-100" />
         </div>
+
+        {/* Lock Switch */}
+        {onToggleLock && (
+          <div className="px-6 py-4 border-t border-slate-200">
+            <div className={`flex items-center justify-between p-4 rounded-xl border transition-colors ${
+              datosLocked 
+                ? 'bg-amber-50 border-amber-200' 
+                : 'bg-slate-50 border-slate-200'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${
+                  datosLocked ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'
+                }`}>
+                  {datosLocked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-700">Bloquear Datos de Activos</h4>
+                  <p className="text-[11px] text-slate-500">
+                    {datosLocked 
+                      ? 'Los datos están bloqueados. Solo puedes cambiar divisibilidad y adjudicación manual.' 
+                      : 'Activa el bloqueo cuando hayas verificado todos los importes y superficies.'
+                    }
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => onToggleLock(!datosLocked)}
+                className={`relative w-14 h-7 rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                  datosLocked 
+                    ? 'bg-amber-500 focus:ring-amber-400' 
+                    : 'bg-slate-300 focus:ring-slate-400'
+                }`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${
+                  datosLocked ? 'translate-x-7' : 'translate-x-0'
+                }`} />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="p-6 bg-slate-50 flex items-center justify-end gap-3 border-t border-slate-200">
